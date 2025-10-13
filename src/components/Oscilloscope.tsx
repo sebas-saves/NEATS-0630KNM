@@ -1,5 +1,6 @@
 // src/components/Oscilloscope.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Maximize2, Minimize2 } from "lucide-react";
 
 type Mode = "xy" | "wave" | "eq";
 type ColorMode = "mono" | "rainbow";
@@ -50,7 +51,6 @@ function Rotary({
   return (
     <div className="rotary">
       <div className="knob" style={{ transform: `rotate(${angle}deg)` }}>
-        {/* decorative layers */}
         <div className="knob-rim" />
         <div className="knob-ticks" />
         <div className="pointer" />
@@ -123,7 +123,7 @@ export default function Oscilloscope() {
   const acRef = useRef<AudioContext | null>(null);
   const anLRef = useRef<AnalyserNode | null>(null);
   const anRRef = useRef<AnalyserNode | null>(null);
-  const specRef = useRef<AnalyserNode | null>(null); // <- spectrum for EQ
+  const specRef = useRef<AnalyserNode | null>(null);
   const graphRef = useRef<{
     hpfL?: BiquadFilterNode;
     hpfR?: BiquadFilterNode;
@@ -157,14 +157,16 @@ export default function Oscilloscope() {
   const [fullscreen, setFullscreen] = useState(false);
 
   // EQ controls
-  const [eqBands, setEqBands] = useState(32); // number of columns
-  const [eqSmoothing, setEqSmoothing] = useState(0.7); // analyser smoothing
+  const [eqBands, setEqBands] = useState(32);
+  const [eqSmoothing, setEqSmoothing] = useState(0.7);
   const [eqPeakHold, setEqPeakHold] = useState(true);
-
-  // peak memory for EQ (decays)
   const eqPeaksRef = useRef<number[]>([]);
 
-  // live controls cache
+  // controls hover card visibility (no layout changes)
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const hideTimer = useRef<number | null>(null);
+
+  // live controls cache for draw loop
   const controlsRef = useRef({
     rotation,
     aspect,
@@ -212,63 +214,37 @@ export default function Oscilloscope() {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
 
-    const ac = new (window.AudioContext || (window as any).webkitAudioContext)({
-      sampleRate: 48000,
-    });
+    const ac = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
     acRef.current = ac;
 
     const src = ac.createMediaStreamSource(stream);
     const split = ac.createChannelSplitter(2);
 
-    const hpfL = ac.createBiquadFilter();
-    hpfL.type = "highpass";
-    hpfL.frequency.value = hpf;
-    const hpfR = ac.createBiquadFilter();
-    hpfR.type = "highpass";
-    hpfR.frequency.value = hpf;
-    const lpfL = ac.createBiquadFilter();
-    lpfL.type = "lowpass";
-    lpfL.frequency.value = lpf;
-    const lpfR = ac.createBiquadFilter();
-    lpfR.type = "lowpass";
-    lpfR.frequency.value = lpf;
-    const gainNode = ac.createGain();
-    gainNode.gain.value = gain;
+    const hpfL = ac.createBiquadFilter(); hpfL.type = "highpass"; hpfL.frequency.value = hpf;
+    const hpfR = ac.createBiquadFilter(); hpfR.type = "highpass"; hpfR.frequency.value = hpf;
+    const lpfL = ac.createBiquadFilter(); lpfL.type = "lowpass";  lpfL.frequency.value = lpf;
+    const lpfR = ac.createBiquadFilter(); lpfR.type = "lowpass";  lpfR.frequency.value = lpf;
+    const gainNode = ac.createGain();     gainNode.gain.value = gain;
 
-    const anL = ac.createAnalyser();
-    const anR = ac.createAnalyser();
+    const anL = ac.createAnalyser(); const anR = ac.createAnalyser();
     anL.fftSize = anR.fftSize = 2048;
 
     src.connect(split);
-    split.connect(hpfL, 0);
-    split.connect(hpfR, 1);
-    hpfL.connect(lpfL);
-    hpfR.connect(lpfR);
-    lpfL.connect(gainNode);
-    lpfR.connect(gainNode);
+    split.connect(hpfL, 0); split.connect(hpfR, 1);
+    hpfL.connect(lpfL);      hpfR.connect(lpfR);
+    lpfL.connect(gainNode);  lpfR.connect(gainNode);
 
     // scope analysers (post-gain)
-    lpfL.connect(anL);
-    lpfR.connect(anR);
+    lpfL.connect(anL); lpfR.connect(anR);
 
-    // spectrum analyser for EQ (sum both branches into same analyser input)
+    // spectrum analyser for EQ (sum L+R)
     const spec = ac.createAnalyser();
     spec.fftSize = 2048;
     spec.smoothingTimeConstant = eqSmoothing;
-    lpfL.connect(spec);
-    lpfR.connect(spec);
+    lpfL.connect(spec); lpfR.connect(spec);
     specRef.current = spec;
 
-    // IMPORTANT: Do NOT route to speakers. Chrome may mute captured audio
-    // in Window/Screen capture if we create a feedback path.
-    // If you want monitoring later, gate connects behind a user toggle.
-    // const out = ac.createChannelMerger(2);
-    // lpfL.connect(out, 0, 0);
-    // lpfR.connect(out, 0, 1);
-    // out.connect(ac.destination);
-
-    anLRef.current = anL;
-    anRRef.current = anR;
+    anLRef.current = anL; anRRef.current = anR;
     graphRef.current = { hpfL, hpfR, lpfL, lpfR, gain: gainNode };
 
     draw();
@@ -276,14 +252,11 @@ export default function Oscilloscope() {
   }
 
   function stop() {
-    try {
-      acRef.current?.close();
-    } catch {}
+    try { acRef.current?.close(); } catch {}
     acRef.current = null;
     setRunning(false);
   }
 
-  // power behaviour
   useEffect(() => {
     if (power && !running) start();
     if (!power && running) stop();
@@ -291,13 +264,12 @@ export default function Oscilloscope() {
 
   // live node updates
   useEffect(() => {
-    const ac = acRef.current;
-    if (!ac) return;
+    const ac = acRef.current; if (!ac) return;
     graphRef.current.hpfL?.frequency.setTargetAtTime(hpf, ac.currentTime, 0.02);
     graphRef.current.hpfR?.frequency.setTargetAtTime(hpf, ac.currentTime, 0.02);
     graphRef.current.lpfL?.frequency.setTargetAtTime(lpf, ac.currentTime, 0.02);
     graphRef.current.lpfR?.frequency.setTargetAtTime(lpf, ac.currentTime, 0.02);
-    graphRef.current.gain?.gain.setTargetAtTime(gain, ac.currentTime, 0.02);
+    graphRef.current.gain ?.gain     .setTargetAtTime(gain, ac.currentTime, 0.02);
   }, [hpf, lpf, gain]);
 
   // analyser smoothing for EQ
@@ -305,34 +277,23 @@ export default function Oscilloscope() {
     if (specRef.current) specRef.current.smoothingTimeConstant = eqSmoothing;
   }, [eqSmoothing]);
 
-  // fullscreen change -> reflect state & redraw
+  // fullscreen & resize
   useEffect(() => {
-    const onFs = () => {
-      setFullscreen(!!document.fullscreenElement);
-      draw();
-    };
+    const onFs = () => { setFullscreen(!!document.fullscreenElement); draw(); };
     document.addEventListener("fullscreenchange", onFs);
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
 
-  // ResizeObserver keeps canvas sized to its box (incl. fullscreen)
   useEffect(() => {
-    const host = crtRef.current;
-    if (!host) return;
+    const host = crtRef.current; if (!host) return;
     let raf = 0;
-    const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(draw);
-    });
+    const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); });
     ro.observe(host);
-    return () => {
-      ro.disconnect();
-      cancelAnimationFrame(raf);
-    };
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
   }, []);
 
   function toggleFullscreen() {
-    const el = crtRef.current;
+    const el = canvasRef.current ?? crtRef.current;
     if (!el) return;
     if (!document.fullscreenElement) {
       // @ts-ignore
@@ -347,71 +308,50 @@ export default function Oscilloscope() {
     ctx.save();
     ctx.strokeStyle = "rgba(150,160,180,.22)";
     ctx.lineWidth = 1;
-    const n = 10,
-      dx = w / n,
-      dy = h / n;
+    const n = 10, dx = w / n, dy = h / n;
     for (let i = 1; i < n; i++) {
-      ctx.beginPath();
-      ctx.moveTo(i * dx, 0);
-      ctx.lineTo(i * dx, h);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(0, i * dy);
-      ctx.lineTo(w, i * dy);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(i * dx, 0); ctx.lineTo(i * dx, h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i * dy); ctx.lineTo(w, i * dy); ctx.stroke();
     }
     ctx.strokeStyle = "rgba(200,220,250,.5)";
-    ctx.beginPath();
-    ctx.moveTo(w / 2, 0);
-    ctx.lineTo(w / 2, h);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(0, h / 2);
-    ctx.lineTo(w, h / 2);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
     ctx.restore();
   }
 
   function hueForLevel(yNorm: number) {
-    // 0 at bottom (cool) -> 1 at top (hot)
-    const hue = 170 - 170 * yNorm; // teal->green->yellow->red (~170..0)
+    const hue = 170 - 170 * yNorm; // teal->green->yellow->red
     return `hsl(${hue}, 90%, 65%)`;
   }
 
   function drawEQ(ctx: CanvasRenderingContext2D, w: number, h: number) {
-    const spec = specRef.current;
-    if (!spec) return;
-
-    const binCount = spec.frequencyBinCount; // 1024 (fftSize/2)
+    const spec = specRef.current; if (!spec) return;
+    const binCount = spec.frequencyBinCount;
     const data = new Uint8Array(binCount);
     spec.getByteFrequencyData(data);
 
-    // number of columns
     const cols = Math.max(8, Math.min(96, eqBands));
     const groupSize = Math.floor(binCount / cols);
 
-    // compute per-column value (log-ish emphasis)
     const values: number[] = [];
     for (let c = 0; c < cols; c++) {
       const start = c * groupSize;
       let sum = 0;
       for (let i = 0; i < groupSize; i++) sum += data[start + i];
-      const v = sum / (groupSize * 255); // 0..1
-      values.push(Math.pow(v, 0.85)); // slight companding for punch
+      const v = sum / (groupSize * 255);
+      values.push(Math.pow(v, 0.85));
     }
 
-    // init peaks array if needed
     if (eqPeaksRef.current.length !== cols) {
       eqPeaksRef.current = Array(cols).fill(0);
     }
 
-    const gap = Math.max(1, Math.floor(w / cols / 10)); // visual gap
+    const gap = Math.max(1, Math.floor(w / cols / 10));
     const colW = (w - (cols + 1) * gap) / cols;
-    const segH = Math.max(4, Math.floor(h / 40)); // height of a segment block
+    const segH = Math.max(4, Math.floor(h / 40));
     const segments = Math.floor(h / segH);
 
     ctx.save();
-    // base glass
     const grd = ctx.createLinearGradient(0, 0, 0, h);
     grd.addColorStop(0, "rgba(255,255,255,0.03)");
     grd.addColorStop(1, "rgba(0,0,0,0.05)");
@@ -422,7 +362,6 @@ export default function Oscilloscope() {
       const x = gap + c * (colW + gap);
       const levelSegs = Math.floor(values[c] * segments);
 
-      // draw segments from bottom
       for (let s = 0; s < levelSegs; s++) {
         const yBottom = h - (s + 1) * segH;
         const yNorm = (s + 1) / segments;
@@ -430,9 +369,8 @@ export default function Oscilloscope() {
         ctx.fillRect(x, yBottom + 1, colW, segH - 2);
       }
 
-      // peak hold marker
       if (eqPeakHold) {
-        const decay = 0.015; // fall speed per frame
+        const decay = 0.015;
         eqPeaksRef.current[c] = Math.max(eqPeaksRef.current[c] - decay, values[c]);
         const peakY = h - Math.floor(eqPeaksRef.current[c] * segments) * segH;
         ctx.fillStyle = "rgba(255,255,255,.8)";
@@ -440,7 +378,6 @@ export default function Oscilloscope() {
       }
     }
 
-    // inner border/gloss
     ctx.strokeStyle = "rgba(255,255,255,.06)";
     ctx.lineWidth = 1;
     ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
@@ -452,7 +389,7 @@ export default function Oscilloscope() {
     if (!cvs) return;
 
     const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const rect = cvs.getBoundingClientRect(); // robust across fullscreen transitions
+    const rect = cvs.getBoundingClientRect();
     const cssW = Math.max(200, Math.floor(rect.width));
     const cssH = Math.max(150, Math.floor(rect.height));
     cvs.width = Math.floor(cssW * dpr);
@@ -462,8 +399,7 @@ export default function Oscilloscope() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const off = document.createElement("canvas");
-    off.width = cssW;
-    off.height = cssH;
+    off.width = cssW; off.height = cssH;
     const octx = off.getContext("2d")!;
 
     const loop = () => {
@@ -477,7 +413,6 @@ export default function Oscilloscope() {
         return;
       }
 
-      // background fade
       const fade = Math.pow(1 - persistence, gamma);
       ctx.fillStyle = `rgba(2,5,12,${fade})`;
       ctx.fillRect(0, 0, cssW, cssH);
@@ -489,27 +424,19 @@ export default function Oscilloscope() {
         return;
       }
 
-      // scope drawing (wave/xy)
-      const anL = anLRef.current,
-        anR = anRRef.current;
+      const anL = anLRef.current!, anR = anRRef.current!;
       const N = anL.fftSize;
-      const L = new Float32Array(N),
-        R = new Float32Array(N);
-      anL.getFloatTimeDomainData(L);
-      anR.getFloatTimeDomainData(R);
+      const L = new Float32Array(N), R = new Float32Array(N);
+      anL.getFloatTimeDomainData(L); anR.getFloatTimeDomainData(R);
 
       octx.clearRect(0, 0, cssW, cssH);
       const setStroke = (t: CanvasRenderingContext2D, a = 1) => {
-        t.lineCap = "round";
-        t.lineJoin = "round";
-        t.globalAlpha = a;
-        t.lineWidth = thickness;
+        t.lineCap = "round"; t.lineJoin = "round"; t.globalAlpha = a; t.lineWidth = thickness;
       };
       setStroke(octx, 1);
 
       const drawSeg = (i: number, x: number, y: number) => {
-        if (i === 0) octx.moveTo(x, y);
-        else octx.lineTo(x, y);
+        if (i === 0) octx.moveTo(x, y); else octx.lineTo(x, y);
       };
 
       octx.beginPath();
@@ -519,15 +446,10 @@ export default function Oscilloscope() {
           const y = cssH * 0.5 - L[i] * (cssH * 0.45);
           drawSeg(i, x, y);
         }
-        octx.strokeStyle = monoColor;
-        octx.stroke();
+        octx.strokeStyle = monoColor; octx.stroke();
       } else {
-        const cx = cssW / 2,
-          cy = cssH / 2,
-          scale = 0.47 * Math.min(cssW, cssH);
-        const rot = (rotation * Math.PI) / 180,
-          c = Math.cos(rot),
-          s = Math.sin(rot);
+        const cx = cssW / 2, cy = cssH / 2, scale = 0.47 * Math.min(cssW, cssH);
+        const rot = (rotation * Math.PI) / 180, c = Math.cos(rot), s = Math.sin(rot);
 
         if (colorMode === "mono") {
           for (let i = 0; i < N; i++) {
@@ -535,8 +457,7 @@ export default function Oscilloscope() {
             const yr = (L[i] * s + R[i] * c) * aspect;
             drawSeg(i, cx + xr * scale, cy - yr * scale);
           }
-          octx.strokeStyle = monoColor;
-          octx.stroke();
+          octx.strokeStyle = monoColor; octx.stroke();
         } else {
           const seg = 64;
           for (let k = 0; k < N - seg; k += seg) {
@@ -554,16 +475,10 @@ export default function Oscilloscope() {
         }
       }
 
-      // glow pass
       ctx.save();
       ctx.globalCompositeOperation = "lighter";
-      if (glow > 0) {
-        ctx.filter = `blur(${glow}px)`;
-        ctx.drawImage(off, 0, 0);
-        ctx.filter = "none";
-      }
-      setStroke(ctx, 1);
-      ctx.drawImage(off, 0, 0);
+      if (glow > 0) { ctx.filter = `blur(${glow}px)`; ctx.drawImage(off, 0, 0); ctx.filter = "none"; }
+      setStroke(ctx, 1); ctx.drawImage(off, 0, 0);
       ctx.restore();
 
       requestAnimationFrame(loop);
@@ -572,29 +487,28 @@ export default function Oscilloscope() {
     loop();
   }
 
-  // meters
   function meterLoop() {
-    const anL = anLRef.current,
-      anR = anRRef.current;
+    const anL = anLRef.current, anR = anRRef.current;
     if (!anL || !anR) return;
-    const N = 512,
-      l = new Float32Array(N),
-      r = new Float32Array(N);
+    const N = 512, l = new Float32Array(N), r = new Float32Array(N);
     const tick = () => {
-      if (!power) {
-        setVuL(0);
-        setVuR(0);
-        requestAnimationFrame(tick);
-        return;
-      }
-      anL.getFloatTimeDomainData(l);
-      anR.getFloatTimeDomainData(r);
+      if (!power) { setVuL(0); setVuR(0); requestAnimationFrame(tick); return; }
+      anL.getFloatTimeDomainData(l); anR.getFloatTimeDomainData(r);
       const rms = (b: Float32Array) => Math.sqrt(b.reduce((s, x) => s + x * x, 0) / b.length);
-      setVuL(Math.min(1, rms(l) * 2.2));
-      setVuR(Math.min(1, rms(r) * 2.2));
+      setVuL(Math.min(1, rms(l) * 2.2)); setVuR(Math.min(1, rms(r) * 2.2));
       requestAnimationFrame(tick);
     };
     tick();
+  }
+
+  // show/hide handlers for the hover card (with a tiny delay to allow moving from button to card)
+  function showControls() {
+    if (hideTimer.current) { window.clearTimeout(hideTimer.current); hideTimer.current = null; }
+    setControlsVisible(true);
+  }
+  function hideControls() {
+    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    hideTimer.current = window.setTimeout(() => setControlsVisible(false), 140) as unknown as number;
   }
 
   return (
@@ -607,40 +521,25 @@ export default function Oscilloscope() {
           padding:clamp(8px,1vw,16px); width:100vw; height:100vh; box-sizing:border-box;
           display:flex; align-items:center; justify-content:center;
         }
-        .panel{
-          display:grid; grid-template-columns: 1fr 0.88fr;
-          gap:clamp(10px,1.2vw,22px); width:95vw; height:90vh; max-width:1640px;
-          filter: drop-shadow(0 10px 30px rgba(0,0,0,.45));
+        .stage{
+          position:relative; width:95vw; height:90vh; max-width:1640px;
+          display:flex; flex-direction:column; filter: drop-shadow(0 10px 30px rgba(0,0,0,.45));
         }
-
+        /* ------- Display bay ------- */
         .crt-wrap{
-          position:relative;
+          position:relative; flex:1;
           background: linear-gradient(#0e141c,#0b0f16);
           border-radius:12px; padding:clamp(12px,1.2vw,18px);
           box-shadow: inset 0 0 0 2px #222c3a, inset 0 8px 18px rgba(255,255,255,.04);
-          display:flex; flex-direction:column; height:100%;
+          display:flex; flex-direction:column;
         }
         .crt{
           position:relative; flex:1; border-radius:10px; overflow:hidden;
           background:#02050c;
           box-shadow: inset 0 0 0 1px #16202e, 0 14px 34px rgba(0,0,0,.45);
         }
-        /* Fullscreen: let the CRT truly fill the screen */
-        .crt:fullscreen {
-          width: 100vw !important;
-          height: 100vh !important;
-          border-radius: 0 !important;
-          padding: 0 !important;
-          background: #02050c;
-          box-shadow: none;
-        }
-        .crt:fullscreen canvas{
-          width: 100vw !important;
-          height: 100vh !important;
-          display:block;
-        }
-        .crt:fullscreen + .brand{ display:none; }
-
+        canvas:fullscreen { width:100vw !important; height:100vh !important; display:block; }
+        .crt:has(canvas:fullscreen) { border-radius:0 !important; box-shadow:none; }
         .crt::before{
           content:""; position:absolute; inset:0; pointer-events:none;
           background:
@@ -657,27 +556,49 @@ export default function Oscilloscope() {
         .crt canvas{ width:100%; height:100%; display:block; }
         .brand{ font-size:11px; opacity:.55; letter-spacing:.18em; text-transform:uppercase; margin-top:6px; }
 
-        .side{
-          background: linear-gradient(#1c2431,#17202c);
-          border-radius:12px; padding:12px;
-          box-shadow: inset 0 0 0 1px #2a3240, inset 0 18px 26px rgba(255,255,255,.03);
-          display:grid; grid-template-rows:auto auto auto auto 1fr; gap:12px; height:100%; min-height:0;
+        /* ------- Controls hover button + card ------- */
+        .controls-tab{
+          position:absolute; left:16px; top:16px;
+          z-index:20;
+          background:#0f1724; color:#e7f6ff; border:1px solid #2b3442; border-radius:8px;
+          padding:8px 12px; font-size:13px; letter-spacing:.06em; text-transform:uppercase;
+          box-shadow:0 8px 20px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
+          cursor:pointer;
         }
-        .logo{ font-weight:700; letter-spacing:.08em; opacity:.9; font-size:14px; text-shadow:0 1px 0 #000; }
+        .controls-card{
+          position:absolute; left:16px; top:58px; bottom:16px; width:min(360px, 42vw);
+          z-index:19; pointer-events:auto;
+          border-radius:12px; padding:12px;
+          background: linear-gradient(#1c2431,#17202c);
+          box-shadow: inset 0 0 0 1px #2a3240, 0 12px 30px rgba(0,0,0,.45);
+          display:grid; grid-auto-rows: max-content; gap:12px; overflow:auto;
+          transition: opacity .18s ease, transform .18s ease;
+        }
+        .controls-card.dimmed{
+          opacity:0; transform:translateY(-6px);
+          pointer-events:none;
+        }
 
-        .group{
-          border-radius:10px; padding:12px;
+        /* Groups / knobs / buttons styling (same look as before) */
+        .logo{ font-weight:700; letter-spacing:.08em; opacity:.9; font-size:14px; text-shadow:0 1px 0 #000; }
+        .group{ position:relative; border-radius:10px; padding:12px;
           background: linear-gradient(180deg, #1a2230 0%, #171f2b 100%);
           box-shadow: inset 0 0 0 1px #2b3442, inset 0 18px 22px rgba(255,255,255,.03), inset 0 -8px 18px rgba(0,0,0,.25);
         }
         .group-title{ font-size:12px; text-transform:uppercase; letter-spacing:.1em; opacity:.7; margin-bottom:8px; }
+        .icon-fs{
+          position:absolute; top:8px; right:8px;
+          display:inline-flex; align-items:center; justify-content:center;
+          width:28px; height:28px; border-radius:6px;
+          background:#121823; border:1px solid #2b3442; color:#cfe4ff;
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+          cursor:pointer; opacity:.85;
+        }
+        .icon-fs:hover{ opacity:1; box-shadow:0 0 0 1px #2f5 inset, 0 0 8px #2f5a; }
+        .icon-fs svg{ width:16px; height:16px; }
 
         .row{ display:flex; gap:10px; align-items:center; }
         .meters{ display:flex; gap:6px; align-items:center; margin-left:auto; }
-        .full-btn{
-          padding:6px 10px; border-radius:8px; border:1px solid #2b3442; cursor:pointer;
-          background:#131a22; color:#cfe4ff; box-shadow:inset 0 0 0 1px #2b3442; font-weight:700; letter-spacing:.06em;
-        }
 
         .toggle{ display:flex; align-items:center; gap:10px; }
         .switch{ width:48px; height:24px; border-radius:20px; background:#11161f; box-shadow: inset 0 0 0 1px #2b3442; position:relative; cursor:pointer;}
@@ -726,161 +647,159 @@ export default function Oscilloscope() {
         .rotary-label{ text-align:center; }
         .rotary-label .name{ font-size:12px; opacity:.8; letter-spacing:.08em; text-transform:uppercase; text-shadow:0 1px 0 #000; }
         .rotary-label .val{ font-size:11px; opacity:.6; }
-
-        @media (max-height: 720px) { .panel{ height:92vh; } .side{ overflow:auto; } }
       `}</style>
 
-      <div className="panel">
-        {/* LEFT: Display bay */}
-        <div className="crt-wrap">
-          <div className={`crt ${power ? "glow" : ""}`} ref={crtRef}>
+      <div className="stage">
+        {/* Display */}
+        <div className="crt-wrap" ref={crtRef}>
+          <div className={`crt ${power ? "glow" : ""}`}>
             <canvas ref={canvasRef} />
           </div>
           <div className="brand">{mode === "eq" ? "graphic equalizer" : "vector scope display"}</div>
-        </div>
 
-        {/* RIGHT: controls */}
-        <div className="side">
-          <div className="logo">NEATS 0630KNM</div>
+          {/* Controls tab */}
+          <button
+            className="controls-tab"
+            onMouseEnter={showControls}
+            onFocus={showControls}
+            onMouseLeave={hideControls}
+            onBlur={hideControls}
+            aria-label="Controls"
+            title="Controls"
+          >
+            Controls
+          </button>
 
-          <div className="group">
-            <div className="group-title">Power</div>
-            <div className="row">
-              <div className="toggle">
-                <div className={`switch ${power ? "on" : ""}`} onClick={() => setPower((p) => !p)}>
-                  <div className="nub" />
-                </div>
-                <span className="label">{power ? "ON" : "OFF"}</span>
-              </div>
-              <button className="full-btn" onClick={toggleFullscreen}>
-                {fullscreen ? "Exit Fullscreen" : "Fullscreen"}
+          {/* Hover card (overlay) */}
+          <div
+            className={`controls-card ${controlsVisible ? "" : "dimmed"}`}
+            onMouseEnter={showControls}
+            onMouseLeave={hideControls}
+            onFocus={showControls}
+            onBlur={hideControls}
+            role="region"
+            aria-label="Oscilloscope controls"
+          >
+            <div className="logo">NEATS 0630KNM</div>
+
+            <div className="group">
+              <div className="group-title">Power</div>
+              <button
+                className="icon-fs"
+                onClick={toggleFullscreen}
+                aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                title={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              >
+                {fullscreen ? <Minimize2 /> : <Maximize2 />}
               </button>
-              <div className="meters">
-                <LedBar level={vuL} />
-                <LedBar level={vuR} />
-              </div>
-            </div>
-          </div>
 
-          <div className="group">
-            <div className="group-title">Mode / Grid</div>
-            <div className="row">
-              <Selector
-                label="Display"
-                value={mode}
-                onChange={(v) => setMode(v as Mode)}
-                options={[
-                  { value: "xy", text: "X-Y" },
-                  { value: "wave", text: "Time" },
-                  { value: "eq", text: "EQ" },
-                ]}
-              />
-              <Toggle label="Grid" checked={grid} onChange={setGrid} />
-            </div>
+              <div className="row">
+                <div className="toggle">
+                  <div className={`switch ${power ? "on" : ""}`} onClick={() => setPower((p) => !p)}>
+                    <div className="nub" />
+                  </div>
+                  <span className="label">{power ? "ON" : "OFF"}</span>
+                </div>
 
-            {mode === "eq" && (
-              <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap" }}>
-                <Selector
-                  label="Bands"
-                  value={String(eqBands)}
-                  onChange={(v) => setEqBands(parseInt(v, 10))}
-                  options={[
-                    { value: "16", text: "16" },
-                    { value: "32", text: "32" },
-                    { value: "48", text: "48" },
-                    { value: "64", text: "64" },
-                  ]}
-                />
-                <Selector
-                  label="Peaks"
-                  value={eqPeakHold ? "on" : "off"}
-                  onChange={(v) => (v === "on" ? setEqPeakHold(true) : setEqPeakHold(false))}
-                  options={[
-                    { value: "on", text: "Hold" },
-                    { value: "off", text: "Off" },
-                  ]}
-                />
-                <div className="toggle" style={{ gap: 8 }}>
-                  <span className="label" style={{ marginRight: 4 }}>
-                    Smoothing
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={0.95}
-                    step={0.05}
-                    value={eqSmoothing}
-                    onChange={(e) => setEqSmoothing(+e.target.value)}
-                    style={{ width: 160 }}
-                  />
+                <div className="meters">
+                  <LedBar level={vuL} />
+                  <LedBar level={vuR} />
                 </div>
               </div>
-            )}
-          </div>
-
-          <div className="group">
-            <div className="group-title">Geometry</div>
-            <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-              <Rotary label="Rotate" min={-180} max={180} step={1} value={rotation} onChange={setRotation} />
-              <Rotary label="Aspect" min={0.4} max={2} step={0.01} value={aspect} onChange={setAspect} showValue />
-              <Rotary label="Gain" min={0} max={2} step={0.01} value={gain} onChange={setGain} showValue />
             </div>
-          </div>
 
-          <div className="group">
-            <div className="group-title">Filters</div>
-            <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-              <Rotary label="HPF Hz" min={5} max={200} step={1} value={hpf} onChange={setHpf} />
-              <Rotary label="LPF Hz" min={200} max={20000} step={10} value={lpf} onChange={setLpf} />
-              <Rotary
-                label="Persist"
-                min={0}
-                max={0.98}
-                step={0.01}
-                value={persistence}
-                onChange={setPersistence}
-                showValue
-              />
-            </div>
-          </div>
+            <div className="group">
+              <div className="group-title">Mode / Grid</div>
+              <div className="row">
+                <Selector
+                  label="Display"
+                  value={mode}
+                  onChange={(v) => setMode(v as Mode)}
+                  options={[
+                    { value: "xy", text: "X-Y" },
+                    { value: "wave", text: "Time" },
+                    { value: "eq", text: "EQ" },
+                  ]}
+                />
+                <Toggle label="Grid" checked={grid} onChange={setGrid} />
+              </div>
 
-          <div className="group">
-            <div className="group-title">Phosphor</div>
-            <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-              <Rotary label="Thickness" min={0.6} max={6} step={0.1} value={thickness} onChange={setThickness} />
-              <Rotary label="Glow" min={0} max={16} step={1} value={glow} onChange={setGlow} />
-              <Rotary label="Gamma" min={0.8} max={1.6} step={0.01} value={gamma} onChange={setGamma} />
-            </div>
-            <div className="row" style={{ marginTop: 6, justifyContent: "space-between" }}>
-              <Selector
-                label="Color"
-                value={colorMode}
-                onChange={(v) => setColorMode(v as ColorMode)}
-                options={[
-                  { value: "mono", text: "Mono" },
-                  { value: "rainbow", text: "Rainbow" },
-                ]}
-              />
-              {colorMode === "mono" && (
-                <div className="row" style={{ gap: 8 }}>
-                  <div
-                    style={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: 4,
-                      border: "1px solid #2b3442",
-                      boxShadow: "inset 0 0 0 1px #4e5a66",
-                      background: monoColor,
-                    }}
+              {mode === "eq" && (
+                <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap" }}>
+                  <Selector
+                    label="Bands"
+                    value={String(eqBands)}
+                    onChange={(v) => setEqBands(parseInt(v, 10))}
+                    options={[
+                      { value: "16", text: "16" },
+                      { value: "32", text: "32" },
+                      { value: "48", text: "48" },
+                      { value: "64", text: "64" },
+                    ]}
                   />
-                  <input
-                    type="color"
-                    value={monoColor}
-                    onChange={(e) => setMonoColor(e.target.value)}
-                    style={{ background: "transparent", border: "none" }}
+                  <Selector
+                    label="Peaks"
+                    value={eqPeakHold ? "on" : "off"}
+                    onChange={(v) => (v === "on" ? setEqPeakHold(true) : setEqPeakHold(false))}
+                    options={[
+                      { value: "on", text: "Hold" },
+                      { value: "off", text: "Off" },
+                    ]}
                   />
+                  <div className="toggle" style={{ gap: 8 }}>
+                    <span className="label" style={{ marginRight: 4 }}>Smoothing</span>
+                    <input
+                      type="range" min={0} max={0.95} step={0.05}
+                      value={eqSmoothing}
+                      onChange={(e) => setEqSmoothing(+e.target.value)}
+                      style={{ width: 160 }}
+                    />
+                  </div>
                 </div>
               )}
+            </div>
+
+            <div className="group">
+              <div className="group-title">Geometry</div>
+              <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+                <Rotary label="Rotate"   min={-180} max={180} step={1}    value={rotation}     onChange={setRotation} />
+                <Rotary label="Aspect"   min={0.4} max={2}   step={0.01}  value={aspect}       onChange={setAspect} showValue />
+                <Rotary label="Gain"     min={0}   max={2}   step={0.01}  value={gain}         onChange={setGain}   showValue />
+              </div>
+            </div>
+
+            <div className="group">
+              <div className="group-title">Filters</div>
+              <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+                <Rotary label="HPF Hz"   min={5}   max={200}   step={1}   value={hpf}          onChange={setHpf} />
+                <Rotary label="LPF Hz"   min={200} max={20000} step={10}  value={lpf}          onChange={setLpf} />
+                <Rotary label="Persist"  min={0}   max={0.98}  step={0.01}value={persistence}  onChange={setPersistence} showValue />
+              </div>
+            </div>
+
+            <div className="group">
+              <div className="group-title">Phosphor</div>
+              <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+                <Rotary label="Thickness" min={0.6} max={6}  step={0.1}  value={thickness} onChange={setThickness} />
+                <Rotary label="Glow"      min={0}   max={16} step={1}    value={glow}      onChange={setGlow} />
+                <Rotary label="Gamma"     min={0.8} max={1.6}step={0.01} value={gamma}     onChange={setGamma} />
+              </div>
+              <div className="row" style={{ marginTop: 6, justifyContent: "space-between" }}>
+                <Selector
+                  label="Color"
+                  value={colorMode}
+                  onChange={(v) => setColorMode(v as ColorMode)}
+                  options={[{ value: "mono", text: "Mono" }, { value: "rainbow", text: "Rainbow" }]}
+                />
+                {colorMode === "mono" && (
+                  <div className="row" style={{ gap: 8 }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #2b3442",
+                                  boxShadow: "inset 0 0 0 1px #4e5a66", background: monoColor }} />
+                    <input type="color" value={monoColor} onChange={(e) => setMonoColor(e.target.value)}
+                           style={{ background: "transparent", border: "none" }} />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
