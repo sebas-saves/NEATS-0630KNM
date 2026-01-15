@@ -1,6 +1,7 @@
 // src/components/Oscilloscope.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
+import "./Oscilloscope.css";
 
 type Mode = "xy" | "wave" | "eq";
 type ColorMode = "mono" | "rainbow";
@@ -16,11 +17,20 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="toggle">
-      <div className={`switch ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}>
-        <div className="nub" />
+    <div className="osc-toggle">
+      <div
+        className={`osc-switch ${checked ? "on" : ""}`}
+        onClick={() => onChange(!checked)}
+        role="switch"
+        aria-checked={checked}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") onChange(!checked);
+        }}
+      >
+        <div className="osc-nub" />
       </div>
-      <span className="label">{label}</span>
+      <span className="osc-toggle-label">{label}</span>
     </div>
   );
 }
@@ -49,25 +59,27 @@ function Rotary({
   }, [value, min, max]);
 
   return (
-    <div className="rotary">
-      <div className="knob" style={{ transform: `rotate(${angle}deg)` }}>
-        <div className="knob-rim" />
-        <div className="knob-ticks" />
-        <div className="pointer" />
-        <div className="knob-cap" />
+    <div className="osc-rotary">
+      <div className="osc-knob" style={{ ["--angle" as any]: `${angle}deg` }}>
+        <div className="osc-knob-rim" />
+        <div className="osc-knob-ticks" />
+        <div className="osc-pointer" />
+        <div className="osc-knob-cap" />
       </div>
+
       <input
         type="range"
-        className="range-hidden"
+        className="osc-range-hidden"
         min={min}
         max={max}
         step={step ?? 1}
         value={value}
         onChange={(e) => onChange(+e.target.value)}
       />
-      <div className="rotary-label">
-        <div className="name">{label}</div>
-        {showValue && <div className="val">{value.toFixed(2)}</div>}
+
+      <div className="osc-rotary-label">
+        <div className="osc-rotary-name">{label}</div>
+        {showValue && <div className="osc-rotary-val">{value.toFixed(2)}</div>}
       </div>
     </div>
   );
@@ -85,14 +97,15 @@ function Selector({
   options: { value: string; text: string }[];
 }) {
   return (
-    <div className="selector">
-      <div className="selector-label">{label}</div>
-      <div className="selector-row">
+    <div className="osc-selector">
+      <div className="osc-selector-label">{label}</div>
+      <div className="osc-selector-row">
         {options.map((o) => (
           <button
             key={o.value}
-            className={`selector-btn ${o.value === value ? "active" : ""}`}
+            className={`osc-selector-btn ${o.value === value ? "active" : ""}`}
             onClick={() => onChange(o.value)}
+            type="button"
           >
             {o.text}
           </button>
@@ -106,9 +119,14 @@ function LedBar({ level }: { level: number }) {
   const bars = 12;
   const active = Math.round(level * bars);
   return (
-    <div className="ledbar">
+    <div className="osc-ledbar">
       {Array.from({ length: bars }).map((_, i) => (
-        <div key={i} className={`led ${i < active ? "on" : ""} ${i >= bars - 3 ? "hot" : ""}`} />
+        <div
+          key={i}
+          className={`osc-led ${i < active ? "on" : ""} ${
+            i >= bars - 3 ? "hot" : ""
+          }`}
+        />
       ))}
     </div>
   );
@@ -150,6 +168,7 @@ export default function Oscilloscope() {
   const [gamma, setGamma] = useState(1.1);
   const [colorMode, setColorMode] = useState<ColorMode>("mono");
   const [monoColor, setMonoColor] = useState("#9EFFA9");
+  const [soften, setSoften] = useState(0.3);
 
   // meters
   const [vuL, setVuL] = useState(0);
@@ -160,14 +179,16 @@ export default function Oscilloscope() {
   const [eqBands, setEqBands] = useState(32);
   const [eqSmoothing, setEqSmoothing] = useState(0.7);
   const [eqPeakHold, setEqPeakHold] = useState(true);
+  const [eqMirror, setEqMirror] = useState(true);
   const eqPeaksRef = useRef<number[]>([]);
 
-  // controls hover card visibility (no layout changes)
+  // controls hover card visibility
   const [controlsVisible, setControlsVisible] = useState(false);
   const hideTimer = useRef<number | null>(null);
 
-  // live controls cache for draw loop
+  // live controls cache for draw loop (IMPORTANT: RAF loop reads ONLY from here)
   const controlsRef = useRef({
+    power,
     rotation,
     aspect,
     persistence,
@@ -178,25 +199,51 @@ export default function Oscilloscope() {
     monoColor,
     grid,
     mode,
-  });
-  Object.assign(controlsRef.current, {
-    rotation,
-    aspect,
-    persistence,
-    thickness,
-    glow,
-    gamma,
-    colorMode,
-    monoColor,
-    grid,
-    mode,
+    soften,
+    eqBands,
+    eqSmoothing,
+    eqPeakHold,
+    eqMirror,
   });
 
-  useEffect(() => () => stop(), []);
+  // keep ref fresh every render
+  Object.assign(controlsRef.current, {
+    power,
+    rotation,
+    aspect,
+    persistence,
+    thickness,
+    glow,
+    gamma,
+    colorMode,
+    monoColor,
+    grid,
+    mode,
+    soften,
+    eqBands,
+    eqSmoothing,
+    eqPeakHold,
+    eqMirror,
+  });
+
+  // render loop refs (IMPORTANT: single loop only)
+  const rafRef = useRef<number | null>(null);
+  const dprRef = useRef(1);
+  const sizeRef = useRef({ w: 0, h: 0 });
+
+  // hi-dpi offscreen buffer
+  const offRef = useRef<HTMLCanvasElement | null>(null);
+  const offCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+
+  useEffect(() => {
+    return () => stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function start() {
     if (running) return;
     setRunning(true);
+
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({
@@ -214,45 +261,74 @@ export default function Oscilloscope() {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
 
-    const ac = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+    const ac = new (window.AudioContext || (window as any).webkitAudioContext)({
+      sampleRate: 48000,
+    });
     acRef.current = ac;
 
     const src = ac.createMediaStreamSource(stream);
     const split = ac.createChannelSplitter(2);
 
-    const hpfL = ac.createBiquadFilter(); hpfL.type = "highpass"; hpfL.frequency.value = hpf;
-    const hpfR = ac.createBiquadFilter(); hpfR.type = "highpass"; hpfR.frequency.value = hpf;
-    const lpfL = ac.createBiquadFilter(); lpfL.type = "lowpass";  lpfL.frequency.value = lpf;
-    const lpfR = ac.createBiquadFilter(); lpfR.type = "lowpass";  lpfR.frequency.value = lpf;
-    const gainNode = ac.createGain();     gainNode.gain.value = gain;
+    const hpfL = ac.createBiquadFilter();
+    hpfL.type = "highpass";
+    hpfL.frequency.value = hpf;
 
-    const anL = ac.createAnalyser(); const anR = ac.createAnalyser();
+    const hpfR = ac.createBiquadFilter();
+    hpfR.type = "highpass";
+    hpfR.frequency.value = hpf;
+
+    const lpfL = ac.createBiquadFilter();
+    lpfL.type = "lowpass";
+    lpfL.frequency.value = lpf;
+
+    const lpfR = ac.createBiquadFilter();
+    lpfR.type = "lowpass";
+    lpfR.frequency.value = lpf;
+
+    const gainNode = ac.createGain();
+    gainNode.gain.value = gain;
+
+    const anL = ac.createAnalyser();
+    const anR = ac.createAnalyser();
     anL.fftSize = anR.fftSize = 2048;
 
     src.connect(split);
-    split.connect(hpfL, 0); split.connect(hpfR, 1);
-    hpfL.connect(lpfL);      hpfR.connect(lpfR);
-    lpfL.connect(gainNode);  lpfR.connect(gainNode);
+    split.connect(hpfL, 0);
+    split.connect(hpfR, 1);
+    hpfL.connect(lpfL);
+    hpfR.connect(lpfR);
+    lpfL.connect(gainNode);
+    lpfR.connect(gainNode);
 
     // scope analysers (post-gain)
-    lpfL.connect(anL); lpfR.connect(anR);
+    lpfL.connect(anL);
+    lpfR.connect(anR);
 
-    // spectrum analyser for EQ (sum L+R)
+    // spectrum analyser for EQ
     const spec = ac.createAnalyser();
     spec.fftSize = 2048;
     spec.smoothingTimeConstant = eqSmoothing;
-    lpfL.connect(spec); lpfR.connect(spec);
+    lpfL.connect(spec);
+    lpfR.connect(spec);
     specRef.current = spec;
 
-    anLRef.current = anL; anRRef.current = anR;
+    anLRef.current = anL;
+    anRRef.current = anR;
     graphRef.current = { hpfL, hpfR, lpfL, lpfR, gain: gainNode };
 
-    draw();
+    // ensure loop is running + canvas sized
+    resizeCanvas();
+    ensureRenderLoop();
     meterLoop();
   }
 
   function stop() {
-    try { acRef.current?.close(); } catch {}
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = null;
+
+    try {
+      acRef.current?.close();
+    } catch {}
     acRef.current = null;
     setRunning(false);
   }
@@ -260,62 +336,97 @@ export default function Oscilloscope() {
   useEffect(() => {
     if (power && !running) start();
     if (!power && running) stop();
-  }, [power]); // eslint-disable-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [power]);
 
   // live node updates
   useEffect(() => {
-    const ac = acRef.current; if (!ac) return;
+    const ac = acRef.current;
+    if (!ac) return;
     graphRef.current.hpfL?.frequency.setTargetAtTime(hpf, ac.currentTime, 0.02);
     graphRef.current.hpfR?.frequency.setTargetAtTime(hpf, ac.currentTime, 0.02);
     graphRef.current.lpfL?.frequency.setTargetAtTime(lpf, ac.currentTime, 0.02);
     graphRef.current.lpfR?.frequency.setTargetAtTime(lpf, ac.currentTime, 0.02);
-    graphRef.current.gain ?.gain     .setTargetAtTime(gain, ac.currentTime, 0.02);
+    graphRef.current.gain?.gain.setTargetAtTime(gain, ac.currentTime, 0.02);
   }, [hpf, lpf, gain]);
 
-  // analyser smoothing for EQ
   useEffect(() => {
     if (specRef.current) specRef.current.smoothingTimeConstant = eqSmoothing;
   }, [eqSmoothing]);
 
   // fullscreen & resize
   useEffect(() => {
-    const onFs = () => { setFullscreen(!!document.fullscreenElement); draw(); };
+    const onFs = () => {
+      setFullscreen(!!document.fullscreenElement);
+      requestAnimationFrame(() => resizeCanvas());
+    };
     document.addEventListener("fullscreenchange", onFs);
     return () => document.removeEventListener("fullscreenchange", onFs);
   }, []);
 
+  // ResizeObserver
   useEffect(() => {
-    const host = crtRef.current; if (!host) return;
+    const host = crtRef.current;
+    const cvs = canvasRef.current;
+    if (!host || !cvs) return;
+
     let raf = 0;
-    const ro = new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); });
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => resizeCanvas());
+    });
+
     ro.observe(host);
-    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
+    ro.observe(cvs);
+
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(raf);
+    };
   }, []);
 
   function toggleFullscreen() {
-    const el = canvasRef.current ?? crtRef.current;
+    const el = crtRef.current;
     if (!el) return;
+
     if (!document.fullscreenElement) {
       // @ts-ignore
-      el.requestFullscreen?.({ navigationUI: "hide" }).catch(() => el.requestFullscreen?.());
+      el.requestFullscreen?.({ navigationUI: "hide" }).catch(() =>
+        // @ts-ignore
+        el.requestFullscreen?.()
+      );
     } else {
       document.exitFullscreen?.();
     }
   }
 
-  /* drawing helpers */
+  /* ---------------- drawing helpers ---------------- */
   function drawGrid(ctx: CanvasRenderingContext2D, w: number, h: number) {
     ctx.save();
     ctx.strokeStyle = "rgba(150,160,180,.22)";
     ctx.lineWidth = 1;
-    const n = 10, dx = w / n, dy = h / n;
+    const n = 10,
+      dx = w / n,
+      dy = h / n;
     for (let i = 1; i < n; i++) {
-      ctx.beginPath(); ctx.moveTo(i * dx, 0); ctx.lineTo(i * dx, h); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(0, i * dy); ctx.lineTo(w, i * dy); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(i * dx, 0);
+      ctx.lineTo(i * dx, h);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, i * dy);
+      ctx.lineTo(w, i * dy);
+      ctx.stroke();
     }
     ctx.strokeStyle = "rgba(200,220,250,.5)";
-    ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(w / 2, 0);
+    ctx.lineTo(w / 2, h);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -325,21 +436,60 @@ export default function Oscilloscope() {
   }
 
   function drawEQ(ctx: CanvasRenderingContext2D, w: number, h: number) {
-    const spec = specRef.current; if (!spec) return;
+    const spec = specRef.current;
+    if (!spec) return;
+
+    const { eqBands, eqPeakHold, eqMirror } = controlsRef.current;
+
     const binCount = spec.frequencyBinCount;
     const data = new Uint8Array(binCount);
     spec.getByteFrequencyData(data);
 
     const cols = Math.max(8, Math.min(96, eqBands));
-    const groupSize = Math.floor(binCount / cols);
+    let values: number[] = [];
 
-    const values: number[] = [];
-    for (let c = 0; c < cols; c++) {
-      const start = c * groupSize;
-      let sum = 0;
-      for (let i = 0; i < groupSize; i++) sum += data[start + i];
-      const v = sum / (groupSize * 255);
-      values.push(Math.pow(v, 0.85));
+    if (eqMirror) {
+      const half = Math.max(1, Math.floor(cols / 2));
+      const groupSize = Math.max(1, Math.floor(binCount / half));
+
+      const baseValues: number[] = [];
+      for (let c = 0; c < half; c++) {
+        const start = c * groupSize;
+        let sum = 0;
+        let count = 0;
+
+        for (let i = 0; i < groupSize && start + i < binCount; i++) {
+          sum += data[start + i];
+          count++;
+        }
+
+        const v = count ? sum / (count * 255) : 0;
+        baseValues[c] = Math.pow(v, 0.85);
+      }
+
+      values = new Array(cols);
+      for (let c = 0; c < cols; c++) {
+        const mirroredIndex = c < half ? c : cols - 1 - c;
+        const idx = Math.min(half - 1, mirroredIndex);
+        values[c] = baseValues[idx];
+      }
+    } else {
+      const groupSize = Math.max(1, Math.floor(binCount / cols));
+      values = new Array(cols);
+
+      for (let c = 0; c < cols; c++) {
+        const start = c * groupSize;
+        let sum = 0;
+        let count = 0;
+
+        for (let i = 0; i < groupSize && start + i < binCount; i++) {
+          sum += data[start + i];
+          count++;
+        }
+
+        const v = count ? sum / (count * 255) : 0;
+        values[c] = Math.pow(v, 0.85);
+      }
     }
 
     if (eqPeaksRef.current.length !== cols) {
@@ -352,6 +502,7 @@ export default function Oscilloscope() {
     const segments = Math.floor(h / segH);
 
     ctx.save();
+
     const grd = ctx.createLinearGradient(0, 0, 0, h);
     grd.addColorStop(0, "rgba(255,255,255,0.03)");
     grd.addColorStop(1, "rgba(0,0,0,0.05)");
@@ -381,298 +532,313 @@ export default function Oscilloscope() {
     ctx.strokeStyle = "rgba(255,255,255,.06)";
     ctx.lineWidth = 1;
     ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+
     ctx.restore();
   }
 
-  function draw() {
-    const cvs = canvasRef.current!;
+  function strokeSmoothPath(
+    ctx: CanvasRenderingContext2D,
+    xs: number[],
+    ys: number[],
+    s: number
+  ) {
+    const n = xs.length;
+    if (n === 0) return;
+    if (n < 3 || s <= 0) {
+      ctx.moveTo(xs[0], ys[0]);
+      for (let i = 1; i < n; i++) ctx.lineTo(xs[i], ys[i]);
+      return;
+    }
+
+    let x0 = xs[0],
+      y0 = ys[0];
+    let x1 = xs[1],
+      y1 = ys[1];
+    let mx = (x0 + x1) / 2,
+      my = (y0 + y1) / 2;
+    ctx.moveTo(mx, my);
+
+    for (let i = 1; i < n - 1; i++) {
+      const x = xs[i],
+        y = ys[i];
+      const nx = xs[i + 1],
+        ny = ys[i + 1];
+      const midx = (x + nx) / 2,
+        midy = (y + ny) / 2;
+
+      const cx = x + (midx - x) * s;
+      const cy = y + (midy - y) * s;
+
+      ctx.quadraticCurveTo(cx, cy, midx, midy);
+    }
+
+    ctx.lineTo(xs[n - 1], ys[n - 1]);
+  }
+
+  function resizeCanvas() {
+    const cvs = canvasRef.current;
     if (!cvs) return;
 
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
     const rect = cvs.getBoundingClientRect();
     const cssW = Math.max(200, Math.floor(rect.width));
     const cssH = Math.max(150, Math.floor(rect.height));
+
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    dprRef.current = dpr;
+    sizeRef.current = { w: cssW, h: cssH };
+
     cvs.width = Math.floor(cssW * dpr);
     cvs.height = Math.floor(cssH * dpr);
 
-    const ctx = cvs.getContext("2d")!;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (!offRef.current) offRef.current = document.createElement("canvas");
+    const off = offRef.current;
+    off.width = Math.floor(cssW * dpr);
+    off.height = Math.floor(cssH * dpr);
 
-    const off = document.createElement("canvas");
-    off.width = cssW; off.height = cssH;
-    const octx = off.getContext("2d")!;
+    offCtxRef.current = off.getContext("2d");
+    if (offCtxRef.current) {
+      offCtxRef.current.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  }
+
+  function ensureRenderLoop() {
+    if (rafRef.current) return;
 
     const loop = () => {
-      const { rotation, aspect, persistence, thickness, glow, gamma, colorMode, monoColor, grid, mode: curMode } =
-        controlsRef.current;
-
-      if (!power || !anLRef.current || !anRRef.current) {
-        ctx.fillStyle = "rgba(2,5,12,.9)";
-        ctx.fillRect(0, 0, cssW, cssH);
-        requestAnimationFrame(loop);
-        return;
-      }
-
-      const fade = Math.pow(1 - persistence, gamma);
-      ctx.fillStyle = `rgba(2,5,12,${fade})`;
-      ctx.fillRect(0, 0, cssW, cssH);
-      if (grid && curMode !== "eq") drawGrid(ctx, cssW, cssH);
-
-      if (curMode === "eq") {
-        drawEQ(ctx, cssW, cssH);
-        requestAnimationFrame(loop);
-        return;
-      }
-
-      const anL = anLRef.current!, anR = anRRef.current!;
-      const N = anL.fftSize;
-      const L = new Float32Array(N), R = new Float32Array(N);
-      anL.getFloatTimeDomainData(L); anR.getFloatTimeDomainData(R);
-
-      octx.clearRect(0, 0, cssW, cssH);
-      const setStroke = (t: CanvasRenderingContext2D, a = 1) => {
-        t.lineCap = "round"; t.lineJoin = "round"; t.globalAlpha = a; t.lineWidth = thickness;
-      };
-      setStroke(octx, 1);
-
-      const drawSeg = (i: number, x: number, y: number) => {
-        if (i === 0) octx.moveTo(x, y); else octx.lineTo(x, y);
-      };
-
-      octx.beginPath();
-      if (curMode === "wave") {
-        for (let i = 0; i < N; i++) {
-          const x = (i / N) * cssW;
-          const y = cssH * 0.5 - L[i] * (cssH * 0.45);
-          drawSeg(i, x, y);
-        }
-        octx.strokeStyle = monoColor; octx.stroke();
-      } else {
-        const cx = cssW / 2, cy = cssH / 2, scale = 0.47 * Math.min(cssW, cssH);
-        const rot = (rotation * Math.PI) / 180, c = Math.cos(rot), s = Math.sin(rot);
-
-        if (colorMode === "mono") {
-          for (let i = 0; i < N; i++) {
-            const xr = L[i] * c - R[i] * s;
-            const yr = (L[i] * s + R[i] * c) * aspect;
-            drawSeg(i, cx + xr * scale, cy - yr * scale);
-          }
-          octx.strokeStyle = monoColor; octx.stroke();
-        } else {
-          const seg = 64;
-          for (let k = 0; k < N - seg; k += seg) {
-            octx.beginPath();
-            for (let i = 0; i < seg; i++) {
-              const j = k + i;
-              const xr = L[j] * c - R[j] * s;
-              const yr = (L[j] * s + R[j] * c) * aspect;
-              drawSeg(i, cx + xr * scale, cy - yr * scale);
-            }
-            const hue = ((360 * k) / N) | 0;
-            octx.strokeStyle = `hsl(${hue} 90% 70%)`;
-            octx.stroke();
-          }
-        }
-      }
-
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      if (glow > 0) { ctx.filter = `blur(${glow}px)`; ctx.drawImage(off, 0, 0); ctx.filter = "none"; }
-      setStroke(ctx, 1); ctx.drawImage(off, 0, 0);
-      ctx.restore();
-
-      requestAnimationFrame(loop);
+      renderFrame();
+      rafRef.current = requestAnimationFrame(loop);
     };
 
-    loop();
+    rafRef.current = requestAnimationFrame(loop);
+  }
+
+  function renderFrame() {
+    const cvs = canvasRef.current;
+    const off = offRef.current;
+    const octx = offCtxRef.current;
+    if (!cvs || !off || !octx) return;
+
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return;
+
+    const { w: cssW, h: cssH } = sizeRef.current;
+    const dpr = dprRef.current;
+
+    // IMPORTANT: read power from ref (avoids stale closure)
+    const {
+      power: powered,
+      rotation,
+      aspect,
+      persistence,
+      thickness,
+      glow,
+      gamma,
+      colorMode,
+      monoColor,
+      grid,
+      mode: curMode,
+      soften,
+    } = controlsRef.current;
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const fade = Math.pow(1 - persistence, gamma);
+    ctx.fillStyle = `rgba(2,5,12,${fade})`;
+    ctx.fillRect(0, 0, cssW, cssH);
+
+    if (!powered || !anLRef.current || !anRRef.current) {
+      ctx.fillStyle = "rgba(2,5,12,.9)";
+      ctx.fillRect(0, 0, cssW, cssH);
+      return;
+    }
+
+    if (grid && curMode !== "eq") drawGrid(ctx, cssW, cssH);
+
+    if (curMode === "eq") {
+      drawEQ(ctx, cssW, cssH);
+      return;
+    }
+
+    const anL = anLRef.current;
+    const anR = anRRef.current;
+
+    const N = anL.fftSize;
+    const L = new Float32Array(N);
+    const R = new Float32Array(N);
+    anL.getFloatTimeDomainData(L);
+    anR.getFloatTimeDomainData(R);
+
+    octx.clearRect(0, 0, cssW, cssH);
+
+    const setStroke = (t: CanvasRenderingContext2D, a = 1) => {
+      t.lineCap = "round";
+      t.lineJoin = "round";
+      t.globalAlpha = a;
+      t.lineWidth = thickness;
+    };
+
+    setStroke(octx, 1);
+    const smooth = Math.min(Math.max(soften, 0), 1);
+
+    if (curMode === "wave") {
+      const xs: number[] = new Array(N);
+      const ys: number[] = new Array(N);
+      for (let i = 0; i < N; i++) {
+        xs[i] = (i / N) * cssW;
+        ys[i] = cssH * 0.5 - L[i] * (cssH * 0.45);
+      }
+      octx.beginPath();
+      strokeSmoothPath(octx, xs, ys, smooth);
+      octx.strokeStyle = monoColor;
+      octx.stroke();
+    } else {
+      const cx = cssW / 2;
+      const cy = cssH / 2;
+      const scale = 0.47 * Math.min(cssW, cssH);
+      const rot = (rotation * Math.PI) / 180;
+      const c = Math.cos(rot);
+      const s = Math.sin(rot);
+
+      if (colorMode === "mono") {
+        const xs: number[] = new Array(N);
+        const ys: number[] = new Array(N);
+        for (let i = 0; i < N; i++) {
+          const xr = L[i] * c - R[i] * s;
+          const yr = (L[i] * s + R[i] * c) * aspect;
+          xs[i] = cx + xr * scale;
+          ys[i] = cy - yr * scale;
+        }
+        octx.beginPath();
+        strokeSmoothPath(octx, xs, ys, smooth);
+        octx.strokeStyle = monoColor;
+        octx.stroke();
+      } else {
+        const seg = 64;
+        for (let k = 0; k < N - seg; k += seg) {
+          const xs: number[] = new Array(seg);
+          const ys: number[] = new Array(seg);
+          for (let i = 0; i < seg; i++) {
+            const j = k + i;
+            const xr = L[j] * c - R[j] * s;
+            const yr = (L[j] * s + R[j] * c) * aspect;
+            xs[i] = cx + xr * scale;
+            ys[i] = cy - yr * scale;
+          }
+          octx.beginPath();
+          strokeSmoothPath(octx, xs, ys, smooth);
+          const hue = ((360 * k) / N) | 0;
+          octx.strokeStyle = `hsl(${hue} 90% 70%)`;
+          octx.stroke();
+        }
+      }
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+
+    if (glow > 0) {
+      ctx.filter = `blur(${glow}px)`;
+      ctx.drawImage(off, 0, 0, off.width / dpr, off.height / dpr);
+      ctx.filter = "none";
+    }
+
+    setStroke(ctx, 1);
+    ctx.drawImage(off, 0, 0, off.width / dpr, off.height / dpr);
+
+    ctx.restore();
   }
 
   function meterLoop() {
-    const anL = anLRef.current, anR = anRRef.current;
+    const anL = anLRef.current;
+    const anR = anRRef.current;
     if (!anL || !anR) return;
-    const N = 512, l = new Float32Array(N), r = new Float32Array(N);
+
+    const N = 512;
+    const l = new Float32Array(N);
+    const r = new Float32Array(N);
+
     const tick = () => {
-      if (!power) { setVuL(0); setVuR(0); requestAnimationFrame(tick); return; }
-      anL.getFloatTimeDomainData(l); anR.getFloatTimeDomainData(r);
-      const rms = (b: Float32Array) => Math.sqrt(b.reduce((s, x) => s + x * x, 0) / b.length);
-      setVuL(Math.min(1, rms(l) * 2.2)); setVuR(Math.min(1, rms(r) * 2.2));
+      // IMPORTANT: read power from ref (avoids stale closure)
+      if (!controlsRef.current.power) {
+        setVuL(0);
+        setVuR(0);
+        requestAnimationFrame(tick);
+        return;
+      }
+
+      anL.getFloatTimeDomainData(l);
+      anR.getFloatTimeDomainData(r);
+
+      const rms = (b: Float32Array) =>
+        Math.sqrt(b.reduce((s, x) => s + x * x, 0) / b.length);
+
+      setVuL(Math.min(1, rms(l) * 2.2));
+      setVuR(Math.min(1, rms(r) * 2.2));
+
       requestAnimationFrame(tick);
     };
+
     tick();
   }
 
-  // show/hide handlers for the hover card (with a tiny delay to allow moving from button to card)
+  // hover card show/hide
   function showControls() {
-    if (hideTimer.current) { window.clearTimeout(hideTimer.current); hideTimer.current = null; }
+    if (hideTimer.current) {
+      window.clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
     setControlsVisible(true);
   }
+
   function hideControls() {
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    hideTimer.current = window.setTimeout(() => setControlsVisible(false), 140) as unknown as number;
+    hideTimer.current = window.setTimeout(() => setControlsVisible(false), 140);
   }
 
+  // start loop + initial sizing once on mount
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      resizeCanvas();
+      ensureRenderLoop();
+    });
+
+    const onWinResize = () => resizeCanvas();
+    window.addEventListener("resize", onWinResize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onWinResize);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <div className="chassis">
-      <style>{`
-        .chassis{
-          --panel:#1b222d; --bezel:#0e131a; --text:#eaf2ff; --accent:#9EFFA9; --trim:#2b3442;
-          --knob-size: clamp(56px, 7vw, 74px);
-          color:var(--text); background:linear-gradient(#151922,#0c1117);
-          padding:clamp(8px,1vw,16px); width:100vw; height:100vh; box-sizing:border-box;
-          display:flex; align-items:center; justify-content:center;
-        }
-        .stage{
-          position:relative; width:95vw; height:90vh; max-width:1640px;
-          display:flex; flex-direction:column; filter: drop-shadow(0 10px 30px rgba(0,0,0,.45));
-        }
-        /* ------- Display bay ------- */
-        .crt-wrap{
-          position:relative; flex:1;
-          background: linear-gradient(#0e141c,#0b0f16);
-          border-radius:12px; padding:clamp(12px,1.2vw,18px);
-          box-shadow: inset 0 0 0 2px #222c3a, inset 0 8px 18px rgba(255,255,255,.04);
-          display:flex; flex-direction:column;
-        }
-        .crt{
-          position:relative; flex:1; border-radius:10px; overflow:hidden;
-          background:#02050c;
-          box-shadow: inset 0 0 0 1px #16202e, 0 14px 34px rgba(0,0,0,.45);
-        }
-        canvas:fullscreen { width:100vw !important; height:100vh !important; display:block; }
-        .crt:has(canvas:fullscreen) { border-radius:0 !important; box-shadow:none; }
-        .crt::before{
-          content:""; position:absolute; inset:0; pointer-events:none;
-          background:
-            radial-gradient(120% 120% at 50% 50%, transparent 55%, rgba(0,0,0,.35) 85%),
-            linear-gradient(105deg, rgba(255,255,255,.08) 0%, rgba(255,255,255,.02) 25%, transparent 40%);
-          mix-blend-mode:screen;
-        }
-        .crt::after{
-          content:""; position:absolute; inset:0; pointer-events:none; opacity:.06;
-          background:
-            radial-gradient(ellipse at center, rgba(255,255,255,.06), rgba(0,0,0,0) 60%) 0 0/3px 3px,
-            radial-gradient(ellipse at center, rgba(0,0,0,.06), rgba(0,0,0,0) 60%) 1px 2px/4px 4px;
-        }
-        .crt canvas{ width:100%; height:100%; display:block; }
-        .brand{ font-size:11px; opacity:.55; letter-spacing:.18em; text-transform:uppercase; margin-top:6px; }
-
-        /* ------- Controls hover button + card ------- */
-        .controls-tab{
-          position:absolute; left:16px; top:16px;
-          z-index:20;
-          background:#0f1724; color:#e7f6ff; border:1px solid #2b3442; border-radius:8px;
-          padding:8px 12px; font-size:13px; letter-spacing:.06em; text-transform:uppercase;
-          box-shadow:0 8px 20px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06);
-          cursor:pointer;
-        }
-        .controls-card{
-          position:absolute; left:16px; top:58px; bottom:16px; width:min(360px, 42vw);
-          z-index:19; pointer-events:auto;
-          border-radius:12px; padding:12px;
-          background: linear-gradient(#1c2431,#17202c);
-          box-shadow: inset 0 0 0 1px #2a3240, 0 12px 30px rgba(0,0,0,.45);
-          display:grid; grid-auto-rows: max-content; gap:12px; overflow:auto;
-          transition: opacity .18s ease, transform .18s ease;
-        }
-        .controls-card.dimmed{
-          opacity:0; transform:translateY(-6px);
-          pointer-events:none;
-        }
-
-        /* Groups / knobs / buttons styling (same look as before) */
-        .logo{ font-weight:700; letter-spacing:.08em; opacity:.9; font-size:14px; text-shadow:0 1px 0 #000; }
-        .group{ position:relative; border-radius:10px; padding:12px;
-          background: linear-gradient(180deg, #1a2230 0%, #171f2b 100%);
-          box-shadow: inset 0 0 0 1px #2b3442, inset 0 18px 22px rgba(255,255,255,.03), inset 0 -8px 18px rgba(0,0,0,.25);
-        }
-        .group-title{ font-size:12px; text-transform:uppercase; letter-spacing:.1em; opacity:.7; margin-bottom:8px; }
-        .icon-fs{
-          position:absolute; top:8px; right:8px;
-          display:inline-flex; align-items:center; justify-content:center;
-          width:28px; height:28px; border-radius:6px;
-          background:#121823; border:1px solid #2b3442; color:#cfe4ff;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-          cursor:pointer; opacity:.85;
-        }
-        .icon-fs:hover{ opacity:1; box-shadow:0 0 0 1px #2f5 inset, 0 0 8px #2f5a; }
-        .icon-fs svg{ width:16px; height:16px; }
-
-        .row{ display:flex; gap:10px; align-items:center; }
-        .meters{ display:flex; gap:6px; align-items:center; margin-left:auto; }
-
-        .toggle{ display:flex; align-items:center; gap:10px; }
-        .switch{ width:48px; height:24px; border-radius:20px; background:#11161f; box-shadow: inset 0 0 0 1px #2b3442; position:relative; cursor:pointer;}
-        .switch.on{ background:#0c2a20; box-shadow: inset 0 0 0 1px #2f5;}
-        .switch .nub{ position:absolute; top:3px; left:4px; width:18px; height:18px; border-radius:50%; background:#2a3546; box-shadow: 0 1px 0 #0008, inset 0 0 0 1px #3b465a; transition:transform .15s ease;}
-        .switch.on .nub{ transform: translateX(24px); background:#3ccfa7; box-shadow: inset 0 0 0 1px #58c8ad;}
-        .toggle .label{ font-size:13px; opacity:.85;}
-
-        .selector{ display:flex; flex-direction:column; gap:6px; }
-        .selector-label{ font-size:12px; opacity:.75; letter-spacing:.08em; text-transform:uppercase; }
-        .selector-row{ display:flex; gap:6px; flex-wrap:wrap; }
-        .selector-btn{
-          font-size:12px; padding:6px 10px; border-radius:6px; letter-spacing:.04em;
-          background:#121823; border:1px solid #2b3442; color:#cfe4ff; opacity:.9;
-          box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
-        }
-        .selector-btn.active{ background:#0d201b; border-color:#2f5; color:#eafff4; box-shadow: 0 0 0 1px #2f5 inset, 0 0 10px #2f5a; }
-
-        .ledbar{ display:flex; flex-direction:column; gap:3px; width:14px; padding:2px; background:#0a0f15; border:1px solid #2b3442; border-radius:4px; box-shadow: inset 0 2px 8px #000a; }
-        .led{ height:10px; border-radius:2px; background:#0f1a15; box-shadow: inset 0 0 0 1px #10221b; }
-        .led.on{ background:linear-gradient(#4be0b5,#97ffe6); box-shadow: 0 0 6px #6ff0c9aa, inset 0 0 0 1px #2b7a66; }
-        .led.hot.on{ background:linear-gradient(#ffa34a,#ffe38a); box-shadow: 0 0 7px #ffd56aaa, inset 0 0 0 1px #9a7a2a; }
-
-        .rotary{ position:relative; width:calc(var(--knob-size) + 22px); display:flex; flex-direction:column; align-items:center; gap:6px; }
-        .range-hidden{ position:absolute; inset:0; opacity:0; cursor:pointer; }
-
-        .knob{
-          width:var(--knob-size); height:var(--knob-size); border-radius:50%;
-          position:relative; transform-origin:center 40px;
-          background: radial-gradient(120% 120% at 30% 30%, #3a465a, #242c39 60%, #1a212b);
-          border:1px solid #405065;
-          box-shadow: inset 0 6px 12px rgba(0,0,0,.55), inset 0 -8px 14px rgba(0,0,0,.45), 0 4px 14px rgba(0,0,0,.45);
-          transition: transform .06s ease;
-        }
-        .knob:hover{ transform: scale(1.02) translateZ(0); }
-        .knob-rim{ position:absolute; inset:-10px; border-radius:50%; background: radial-gradient(circle at 30% 30%, #4e5c74, #253041 60%, #141a23 100%); box-shadow: inset 0 0 0 1px #2a3442, inset 0 12px 18px rgba(255,255,255,.05), inset 0 -8px 14px rgba(0,0,0,.55); z-index:-1; }
-        .knob-ticks{ position:absolute; inset:-2px; border-radius:50%; background:
-            radial-gradient(circle at 50% 50%, transparent 36%, #121923 37% 38%, transparent 39% 100%),
-            repeating-conic-gradient(from -130deg, #5d6b82 0deg 2deg, transparent 2deg 12deg);
-          filter: drop-shadow(0 1px 0 #000); }
-        .knob::after{ content:""; position:absolute; left:8%; top:10%; width:60%; height:34%; border-radius:50%;
-          background: radial-gradient(ellipse at 40% 40%, rgba(255,255,255,.35), rgba(255,255,255,0) 70%); transform: rotate(-20deg); mix-blend-mode:screen; opacity:.35; pointer-events:none; }
-        .knob-cap{ position:absolute; left:50%; top:50%; width:28%; height:28%; transform:translate(-50%,-50%); border-radius:50%;
-          background: radial-gradient(circle at 35% 35%, #6f7d91, #3c4658 60%, #232c39); box-shadow: inset 0 1px 1px #aab4c066, inset 0 -2px 6px #0008, 0 1px 0 #000a; border:1px solid #2a3646; }
-        .pointer{ position:absolute; left:50%; top:8px; width:3px; height:16px; margin-left:-1.5px; background:linear-gradient(#caffdd,#7df5b2); border-radius:2px; box-shadow:0 0 10px rgba(158,255,169,.65); }
-        .rotary-label{ text-align:center; }
-        .rotary-label .name{ font-size:12px; opacity:.8; letter-spacing:.08em; text-transform:uppercase; text-shadow:0 1px 0 #000; }
-        .rotary-label .val{ font-size:11px; opacity:.6; }
-      `}</style>
-
-      <div className="stage">
-        {/* Display */}
-        <div className="crt-wrap" ref={crtRef}>
-          <div className={`crt ${power ? "glow" : ""}`}>
-            <canvas ref={canvasRef} />
+    <div className="osc-chassis">
+      <div className="osc-stage">
+        <div className="osc-crt-wrap">
+          <div className={`osc-crt ${power ? "glow" : ""}`} ref={crtRef}>
+            <canvas ref={canvasRef} className="osc-canvas" />
           </div>
-          <div className="brand">{mode === "eq" ? "graphic equalizer" : "vector scope display"}</div>
 
-          {/* Controls tab */}
+          <div className="osc-brand">
+            {mode === "eq" ? "graphic equalizer" : "vector scope display"}
+          </div>
+
           <button
-            className="controls-tab"
+            className="osc-controls-tab"
             onMouseEnter={showControls}
             onFocus={showControls}
             onMouseLeave={hideControls}
             onBlur={hideControls}
             aria-label="Controls"
             title="Controls"
+            type="button"
           >
             Controls
           </button>
 
-          {/* Hover card (overlay) */}
           <div
-            className={`controls-card ${controlsVisible ? "" : "dimmed"}`}
+            className={`osc-controls-card ${controlsVisible ? "" : "dimmed"}`}
             onMouseEnter={showControls}
             onMouseLeave={hideControls}
             onFocus={showControls}
@@ -680,37 +846,49 @@ export default function Oscilloscope() {
             role="region"
             aria-label="Oscilloscope controls"
           >
-            <div className="logo">NEATS 0630KNM</div>
+            <div className="osc-logo">NEATS 0630KNM</div>
 
-            <div className="group">
-              <div className="group-title">Power</div>
+            <div className="osc-group">
+              <div className="osc-group-title">Power</div>
+
               <button
-                className="icon-fs"
+                className="osc-icon-fs"
                 onClick={toggleFullscreen}
                 aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 title={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                type="button"
               >
                 {fullscreen ? <Minimize2 /> : <Maximize2 />}
               </button>
 
-              <div className="row">
-                <div className="toggle">
-                  <div className={`switch ${power ? "on" : ""}`} onClick={() => setPower((p) => !p)}>
-                    <div className="nub" />
+              <div className="osc-row">
+                <div className="osc-toggle">
+                  <div
+                    className={`osc-switch ${power ? "on" : ""}`}
+                    onClick={() => setPower((p) => !p)}
+                    role="switch"
+                    aria-checked={power}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") setPower((p) => !p);
+                    }}
+                  >
+                    <div className="osc-nub" />
                   </div>
-                  <span className="label">{power ? "ON" : "OFF"}</span>
+                  <span className="osc-toggle-label">{power ? "ON" : "OFF"}</span>
                 </div>
 
-                <div className="meters">
+                <div className="osc-meters">
                   <LedBar level={vuL} />
                   <LedBar level={vuR} />
                 </div>
               </div>
             </div>
 
-            <div className="group">
-              <div className="group-title">Mode / Grid</div>
-              <div className="row">
+            <div className="osc-group">
+              <div className="osc-group-title">Mode / Grid</div>
+
+              <div className="osc-row osc-row-wrap">
                 <Selector
                   label="Display"
                   value={mode}
@@ -725,7 +903,7 @@ export default function Oscilloscope() {
               </div>
 
               {mode === "eq" && (
-                <div className="row" style={{ marginTop: 10, gap: 10, flexWrap: "wrap" }}>
+                <div className="osc-eq-row">
                   <Selector
                     label="Bands"
                     value={String(eqBands)}
@@ -737,66 +915,83 @@ export default function Oscilloscope() {
                       { value: "64", text: "64" },
                     ]}
                   />
+
                   <Selector
                     label="Peaks"
                     value={eqPeakHold ? "on" : "off"}
-                    onChange={(v) => (v === "on" ? setEqPeakHold(true) : setEqPeakHold(false))}
+                    onChange={(v) => setEqPeakHold(v === "on")}
                     options={[
                       { value: "on", text: "Hold" },
                       { value: "off", text: "Off" },
                     ]}
                   />
-                  <div className="toggle" style={{ gap: 8 }}>
-                    <span className="label" style={{ marginRight: 4 }}>Smoothing</span>
+
+                  <div className="osc-smoothing">
+                    <span className="osc-smoothing-label">Smoothing</span>
                     <input
-                      type="range" min={0} max={0.95} step={0.05}
+                      type="range"
+                      min={0}
+                      max={0.95}
+                      step={0.05}
                       value={eqSmoothing}
                       onChange={(e) => setEqSmoothing(+e.target.value)}
-                      style={{ width: 160 }}
+                      className="osc-smoothing-range"
                     />
                   </div>
+
+                  <Toggle label="Mirror" checked={eqMirror} onChange={setEqMirror} />
                 </div>
               )}
             </div>
 
-            <div className="group">
-              <div className="group-title">Geometry</div>
-              <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-                <Rotary label="Rotate"   min={-180} max={180} step={1}    value={rotation}     onChange={setRotation} />
-                <Rotary label="Aspect"   min={0.4} max={2}   step={0.01}  value={aspect}       onChange={setAspect} showValue />
-                <Rotary label="Gain"     min={0}   max={2}   step={0.01}  value={gain}         onChange={setGain}   showValue />
+            <div className="osc-group">
+              <div className="osc-group-title">Geometry</div>
+              <div className="osc-knob-grid osc-knob-grid-3">
+                <Rotary label="Rotate" min={-180} max={180} step={1} value={rotation} onChange={setRotation} />
+                <Rotary label="Aspect" min={0.4} max={2} step={0.01} value={aspect} onChange={setAspect} showValue />
+                <Rotary label="Gain" min={0} max={2} step={0.01} value={gain} onChange={setGain} showValue />
               </div>
             </div>
 
-            <div className="group">
-              <div className="group-title">Filters</div>
-              <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-                <Rotary label="HPF Hz"   min={5}   max={200}   step={1}   value={hpf}          onChange={setHpf} />
-                <Rotary label="LPF Hz"   min={200} max={20000} step={10}  value={lpf}          onChange={setLpf} />
-                <Rotary label="Persist"  min={0}   max={0.98}  step={0.01}value={persistence}  onChange={setPersistence} showValue />
+            <div className="osc-group">
+              <div className="osc-group-title">Filters</div>
+              <div className="osc-knob-grid osc-knob-grid-3">
+                <Rotary label="HPF Hz" min={5} max={200} step={1} value={hpf} onChange={setHpf} />
+                <Rotary label="LPF Hz" min={200} max={20000} step={10} value={lpf} onChange={setLpf} />
+                <Rotary label="Persist" min={0} max={0.98} step={0.01} value={persistence} onChange={setPersistence} showValue />
               </div>
             </div>
 
-            <div className="group">
-              <div className="group-title">Phosphor</div>
-              <div className="knob-row" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
-                <Rotary label="Thickness" min={0.6} max={6}  step={0.1}  value={thickness} onChange={setThickness} />
-                <Rotary label="Glow"      min={0}   max={16} step={1}    value={glow}      onChange={setGlow} />
-                <Rotary label="Gamma"     min={0.8} max={1.6}step={0.01} value={gamma}     onChange={setGamma} />
+            <div className="osc-group">
+              <div className="osc-group-title">Phosphor</div>
+
+              <div className="osc-knob-grid osc-knob-grid-4">
+                <Rotary label="Thickness" min={0.6} max={6} step={0.1} value={thickness} onChange={setThickness} />
+                <Rotary label="Glow" min={0} max={16} step={1} value={glow} onChange={setGlow} />
+                <Rotary label="Gamma" min={0.8} max={1.6} step={0.01} value={gamma} onChange={setGamma} />
+                <Rotary label="Soften" min={0} max={1} step={0.01} value={soften} onChange={setSoften} showValue />
               </div>
-              <div className="row" style={{ marginTop: 6, justifyContent: "space-between" }}>
+
+              <div className="osc-phosphor-row">
                 <Selector
                   label="Color"
                   value={colorMode}
                   onChange={(v) => setColorMode(v as ColorMode)}
-                  options={[{ value: "mono", text: "Mono" }, { value: "rainbow", text: "Rainbow" }]}
+                  options={[
+                    { value: "mono", text: "Mono" },
+                    { value: "rainbow", text: "Rainbow" },
+                  ]}
                 />
+
                 {colorMode === "mono" && (
-                  <div className="row" style={{ gap: 8 }}>
-                    <div style={{ width: 18, height: 18, borderRadius: 4, border: "1px solid #2b3442",
-                                  boxShadow: "inset 0 0 0 1px #4e5a66", background: monoColor }} />
-                    <input type="color" value={monoColor} onChange={(e) => setMonoColor(e.target.value)}
-                           style={{ background: "transparent", border: "none" }} />
+                  <div className="osc-colorpick">
+                    <div className="osc-swatch" style={{ background: monoColor }} />
+                    <input
+                      type="color"
+                      value={monoColor}
+                      onChange={(e) => setMonoColor(e.target.value)}
+                      className="osc-color-input"
+                    />
                   </div>
                 )}
               </div>
