@@ -136,6 +136,7 @@ function LedBar({ level }: { level: number }) {
 export default function Oscilloscope() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const crtRef = useRef<HTMLDivElement | null>(null);
+  const marqueeTrackRef = useRef<HTMLDivElement | null>(null);
 
   // audio graph
   const acRef = useRef<AudioContext | null>(null);
@@ -758,7 +759,6 @@ export default function Oscilloscope() {
     const r = new Float32Array(N);
 
     const tick = () => {
-      // IMPORTANT: read power from ref (avoids stale closure)
       if (!controlsRef.current.power) {
         setVuL(0);
         setVuR(0);
@@ -780,6 +780,87 @@ export default function Oscilloscope() {
 
     tick();
   }
+   
+   // NOW PLAYING (from extension via window.postMessage)
+  const [nowPlaying, setNowPlaying] = useState<string>("Waiting for playback…");
+  const [nowPlayingSource, setNowPlayingSource] = useState<string>("");
+
+  const lastNpRef = useRef<string>("");
+
+  function setNp(text: string, source?: string) {
+    const t = String(text || "").trim();
+    if (!t) return;
+    if (t === lastNpRef.current) return;
+    lastNpRef.current = t;
+    setNowPlaying(t);
+    setNowPlayingSource(source ? String(source) : "");
+  }
+
+  useEffect(() => {
+    const onMsg = (ev: MessageEvent) => {
+      console.log("[OSC] message", ev.data);
+      const data: any = ev.data;
+      if (!data || typeof data !== "object") return;
+      if (data.type !== "OSC_NOW_PLAYING") return;
+
+      if (typeof data.text === "string" && data.text.trim()) {
+        setNp(data.text, data.source);
+      }
+    };
+
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  // Measure 1 copy width + gap, then animate by pixels (seamless for 2 copies)
+useEffect(() => {
+  const track = marqueeTrackRef.current;
+  if (!track) return;
+
+  const apply = () => {
+  const items = track.querySelectorAll(".osc-nowplaying-item");
+  const first = items[0] as HTMLElement | undefined;
+  const second = items[1] as HTMLElement | undefined;
+  if (!first || !second) return;
+
+  const mask = track.parentElement as HTMLElement | null;
+  const maskWidth = Math.round(mask?.clientWidth ?? 0);
+
+  const rightPadding = 18;
+
+  // start: right-aligned inside the mask
+  const start = Math.max(
+    0,
+    Math.round(maskWidth - first.offsetWidth - rightPadding)
+  );
+
+  // stride between copies (includes your margin-left gap)
+  const stride = Math.max(1, Math.round(second.offsetLeft - first.offsetLeft));
+
+  // travel must include the start offset so it reaches the left before looping
+  const travel = start + stride;
+
+  const pxPerSec = 90;
+  const seconds = Math.max(10, Math.min(40, travel / pxPerSec));
+
+  track.style.setProperty("--marqueeStart", `${start}px`);
+  track.style.setProperty("--marqueeDistance", `${travel}px`);
+  track.style.setProperty("--marqueeSeconds", `${seconds}s`);
+
+  track.style.animation = "none";
+  track.getBoundingClientRect();
+  track.style.animation = `osc-marquee var(--marqueeSeconds) linear infinite`;
+};
+
+  apply();
+  const t = window.setTimeout(apply, 150); 
+  window.addEventListener("resize", apply);
+
+  return () => {
+    window.clearTimeout(t);
+    window.removeEventListener("resize", apply);
+  };
+}, [nowPlaying, nowPlayingSource, power]);
 
   // hover card show/hide
   function showControls() {
@@ -809,7 +890,6 @@ export default function Oscilloscope() {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onWinResize);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -817,8 +897,29 @@ export default function Oscilloscope() {
       <div className="osc-stage">
         <div className="osc-crt-wrap">
           <div className={`osc-crt ${power ? "glow" : ""}`} ref={crtRef}>
-            <canvas ref={canvasRef} className="osc-canvas" />
-          </div>
+  {/* NOW PLAYING marquee overlay */}
+  <div className={`osc-nowplaying ${power ? "" : "off"}`} aria-label="Now playing marquee">
+    <div className="osc-nowplaying-mask">
+      <div className="osc-nowplaying-track" ref={marqueeTrackRef}>
+  {Array.from({ length: 8 }).map((_, i) => (
+    <span
+      key={i}
+      className="osc-nowplaying-item"
+      aria-hidden={i === 0 ? undefined : true}
+    >
+      <span className="osc-nowplaying-tag">NOW PLAYING</span>
+      <span className="osc-nowplaying-text">{nowPlaying}</span>
+      {nowPlayingSource ? (
+        <span className="osc-nowplaying-src">{nowPlayingSource}</span>
+      ) : null}
+    </span>
+  ))}
+</div>
+    </div>
+  </div>
+
+  <canvas ref={canvasRef} className="osc-canvas" />
+</div>
 
           <div className="osc-brand">
             {mode === "eq" ? "graphic equalizer" : "vector scope display"}

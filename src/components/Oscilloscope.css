@@ -513,3 +513,125 @@
   background: transparent;
   border: none;
 }
+
+/* ------- NOW PLAYING marquee (overlay inside CRT) ------- */
+.osc-nowplaying {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  top: 14px;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0.92;
+}
+
+.osc-nowplaying.off {
+  opacity: 0.35;
+}
+
+.osc-nowplaying-mask {
+  height: 34px;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+
+  background: linear-gradient(180deg, rgba(10, 18, 30, 0.72), rgba(6, 10, 18, 0.6));
+  box-shadow:
+    inset 0 0 0 1px rgba(130, 170, 255, 0.12),
+    0 10px 22px rgba(0, 0, 0, 0.35);
+
+  /* edge fade */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 10%,
+    black 90%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 10%,
+    black 90%,
+    transparent 100%
+  );
+}
+
+.osc-nowplaying-track {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  white-space: nowrap;
+  will-change: transform;
+  flex-shrink: 0;
+
+  /* JS sets these */
+  --marqueeDistance: 600px;
+  --marqueeSeconds: 16s;
+  --marqueeStart: 0px;
+
+  animation: osc-marquee var(--marqueeSeconds) linear infinite;
+}
+
+@keyframes osc-marquee {
+  0% {
+    transform: translate3d(var(--marqueeStart), 0, 0);
+  }
+  100% {
+    transform: translate3d(
+      calc(var(--marqueeStart) - var(--marqueeDistance)),
+      0,
+      0
+    );
+  }
+}
+
+/* Each copy */
+.osc-nowplaying-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+/* space between copies */
+.osc-nowplaying-item + .osc-nowplaying-item {
+  margin-left: 56px;
+}
+
+.osc-nowplaying-tag {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  color: #cfe4ff;
+
+  border: 1px solid rgba(158, 255, 169, 0.35);
+  background: rgba(12, 42, 32, 0.42);
+  padding: 5px 8px;
+  border-radius: 999px;
+
+  box-shadow:
+    0 0 0 1px rgba(47, 255, 85, 0.18) inset,
+    0 0 12px rgba(47, 255, 85, 0.08);
+}
+
+.osc-nowplaying-text {
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: rgba(234, 242, 255, 0.92);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.65);
+}
+
+.osc-nowplaying-src {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(18, 24, 35, 0.35);
+}
