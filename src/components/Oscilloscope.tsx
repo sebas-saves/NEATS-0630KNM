@@ -919,6 +919,15 @@ useEffect(() => {
   </div>
 
   <canvas ref={canvasRef} className="osc-canvas" />
+  <button
+    className="osc-icon-fs"
+    onClick={toggleFullscreen}
+    aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+    title={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+    type="button"
+  >
+    {fullscreen ? <Minimize2 /> : <Maximize2 />}
+  </button>
 </div>
 
           <div className="osc-brand">
@@ -951,16 +960,6 @@ useEffect(() => {
 
             <div className="osc-group">
               <div className="osc-group-title">Power</div>
-
-              <button
-                className="osc-icon-fs"
-                onClick={toggleFullscreen}
-                aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                title={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                type="button"
-              >
-                {fullscreen ? <Minimize2 /> : <Maximize2 />}
-              </button>
 
               <div className="osc-row">
                 <div className="osc-toggle">
