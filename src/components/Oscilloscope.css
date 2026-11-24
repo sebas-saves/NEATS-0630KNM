@@ -8,8 +8,10 @@
   --trim: #2b3442;
   --knob-size: clamp(40px, min(7vw, 6vh), 56px);
 
+  position: relative;
+  isolation: isolate;
   color: var(--text);
-  background: linear-gradient(#151922, #0c1117);
+  background: #0b0f16;
   padding: clamp(8px, 1vw, 16px);
   width: 100vw;
   height: 100vh;
@@ -19,38 +21,60 @@
   justify-content: center;
 }
 
+.osc-chassis::before {
+  content: "";
+  position: absolute;
+  inset: -28px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(7, 11, 17, 0.62), rgba(7, 11, 17, 0.62)),
+    url("../assets/oscilloscope-panel.png") center / cover no-repeat;
+  filter: blur(24px) saturate(0.7);
+}
+
 .osc-stage {
   position: relative;
-  width: 94vw;
-  height: 100vh;
+  width: min(94vw, 238.65vh);
+  height: auto;
+  aspect-ratio: 1062 / 445;
   max-width: 1600px;
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
+  padding: 0;
   box-sizing: border-box;
-  filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 1));
 }
 
 /* ------- Display bay ------- */
 .osc-crt-wrap {
-  position: relative;
-  flex: 1;
-  background: linear-gradient(#0e141c, #0b0f16);
-  border-radius: 12px;
-  padding: clamp(12px, 1.2vw, 18px);
-  box-shadow: inset 0 0 0 2px #222c3a, inset 0 8px 18px rgba(255, 255, 255, 0.04);
-  display: flex;
-  flex-direction: column;
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.osc-panel-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: fill;
+  filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.75));
+  pointer-events: none;
+  user-select: none;
 }
 
 .osc-crt {
-  position: relative;
-  flex: 1;
-  border-radius: 10px;
+  position: absolute;
+  left: 4.85%;
+  top: 12.4%;
+  width: 36.3%;
+  height: 66.5%;
+  z-index: 1;
+  border: 0;
+  border-radius: 5px;
   overflow: hidden;
   background: #02050c;
-  box-shadow: inset 0 0 0 1px #16202e, 0 14px 34px rgba(0, 0, 0, 0.45);
-  padding: clamp(8px, 0.8vw, 14px);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.4);
+  padding: 0;
   box-sizing: border-box;
 }
 
@@ -58,7 +82,10 @@
 .osc-crt:fullscreen {
   width: 100vw;
   height: 100vh;
+  left: 0;
+  top: 0;
   border-radius: 0;
+  border: 0;
   padding: 12px;
   box-shadow: none;
   background: #02050c;
@@ -93,6 +120,7 @@
 }
 
 .osc-brand {
+  display: none;
   font-size: 11px;
   opacity: 0.55;
   letter-spacing: 0.18em;

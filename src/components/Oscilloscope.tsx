@@ -1,6 +1,7 @@
 // src/components/Oscilloscope.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
+import oscilloscopePanel from "../assets/oscilloscope-panel.png";
 import "./Oscilloscope.css";
 
 type Mode = "xy" | "wave" | "eq";
@@ -896,6 +897,7 @@ useEffect(() => {
     <div className="osc-chassis">
       <div className="osc-stage">
         <div className="osc-crt-wrap">
+          <img className="osc-panel-image" src={oscilloscopePanel} alt="" aria-hidden="true" />
           <div className={`osc-crt ${power ? "glow" : ""}`} ref={crtRef}>
   {/* NOW PLAYING marquee overlay */}
   <div className={`osc-nowplaying ${power ? "" : "off"}`} aria-label="Now playing marquee">
