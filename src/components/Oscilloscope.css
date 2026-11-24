@@ -6,7 +6,7 @@
   --text: #eaf2ff;
   --accent: #9effa9;
   --trim: #2b3442;
-  --knob-size: clamp(56px, 7vw, 74px);
+  --knob-size: clamp(40px, min(7vw, 6vh), 56px);
 
   color: var(--text);
   background: linear-gradient(#151922, #0c1117);
@@ -22,7 +22,7 @@
 .osc-stage {
   position: relative;
   width: 94vw;
-  height: 88vh;
+  height: 100vh;
   max-width: 1600px;
   display: flex;
   flex-direction: column;
@@ -119,21 +119,23 @@
 }
 
 .osc-controls-card {
-  position: absolute;
+  position: fixed;
   left: 16px;
   top: 58px;
-  bottom: 16px;
-  width: min(360px, 42vw);
+  bottom: 8px;
+  width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
   z-index: 19;
   pointer-events: auto;
   border-radius: 12px;
-  padding: 12px;
+  padding: 8px;
   background: linear-gradient(#1c2431, #17202c);
   box-shadow: inset 0 0 0 1px #2a3240, 0 12px 30px rgba(0, 0, 0, 0.45);
   display: grid;
   grid-auto-rows: max-content;
-  gap: 12px;
-  overflow: auto;
+  align-content: start;
+  gap: 4px;
+  overflow: clip;
   transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
@@ -155,7 +157,7 @@
 .osc-group {
   position: relative;
   border-radius: 10px;
-  padding: 12px;
+  padding: 7px;
   background: linear-gradient(180deg, #1a2230 0%, #171f2b 100%);
   box-shadow:
     inset 0 0 0 1px #2b3442,
@@ -168,7 +170,7 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   opacity: 0.7;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .osc-icon-fs {
@@ -330,7 +332,7 @@
 .osc-ledbar {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 1px;
   width: 14px;
   padding: 2px;
   background: #0a0f15;
@@ -340,7 +342,7 @@
 }
 
 .osc-led {
-  height: 10px;
+  height: 3px;
   border-radius: 2px;
   background: #0f1a15;
   box-shadow: inset 0 0 0 1px #10221b;
@@ -360,6 +362,7 @@
 .osc-rotary {
   position: relative;
   width: calc(var(--knob-size) + 22px);
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -378,81 +381,65 @@
   height: var(--knob-size);
   border-radius: 50%;
   position: relative;
-  transform-origin: center 40px;
-  transform: rotate(var(--angle));
-  background: radial-gradient(120% 120% at 30% 30%, #3a465a, #242c39 60%, #1a212b);
-  border: 1px solid #405065;
-  box-shadow:
-    inset 0 6px 12px rgba(0, 0, 0, 0.55),
-    inset 0 -8px 14px rgba(0, 0, 0, 0.45),
-    0 4px 14px rgba(0, 0, 0, 0.45);
-  transition: transform 0.06s ease;
+  isolation: isolate;
+  background: #505864;
+  border: 1px solid #333c49;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.14), 0 0 0 2px #272e38;
+  transition: transform 0.12s ease;
 }
 
 .osc-knob:hover {
-  transform: rotate(var(--angle)) scale(1.02) translateZ(0);
+  transform: scale(1.03);
 }
 
 .osc-knob-rim {
-  position: absolute;
-  inset: -10px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, #4e5c74, #253041 60%, #141a23 100%);
-  box-shadow:
-    inset 0 0 0 1px #2a3442,
-    inset 0 12px 18px rgba(255, 255, 255, 0.05),
-    inset 0 -8px 14px rgba(0, 0, 0, 0.55);
-  z-index: -1;
+  display: none;
 }
 
 .osc-knob-ticks {
   position: absolute;
-  inset: -2px;
+  inset: -4px;
   border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, transparent 36%, #121923 37% 38%, transparent 39% 100%),
-    repeating-conic-gradient(from -130deg, #5d6b82 0deg 2deg, transparent 2deg 12deg);
-  filter: drop-shadow(0 1px 0 #000);
+  z-index: 1;
+  background: conic-gradient(
+    from -130deg,
+    #20e6e8 0deg calc(var(--angle) + 130deg),
+    #596271 calc(var(--angle) + 130deg) 260deg,
+    transparent 260deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
 }
 
 .osc-knob::after {
-  content: "";
-  position: absolute;
-  left: 8%;
-  top: 10%;
-  width: 60%;
-  height: 34%;
-  border-radius: 50%;
-  background: radial-gradient(ellipse at 40% 40%, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 70%);
-  transform: rotate(-20deg);
-  mix-blend-mode: screen;
-  opacity: 0.35;
-  pointer-events: none;
+  content: none;
 }
 
 .osc-knob-cap {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 28%;
-  height: 28%;
+  width: 4px;
+  height: 4px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #6f7d91, #3c4658 60%, #232c39);
-  box-shadow: inset 0 1px 1px #aab4c066, inset 0 -2px 6px #0008, 0 1px 0 #000a;
-  border: 1px solid #2a3646;
+  background: #14191f;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
+  z-index: 3;
 }
 
 .osc-pointer {
   position: absolute;
   left: 50%;
-  top: 8px;
-  width: 3px;
-  height: 16px;
-  margin-left: -1.5px;
-  background: linear-gradient(#caffdd, #7df5b2);
+  top: 10%;
+  width: 2px;
+  height: 40%;
+  margin-left: -1px;
+  background: #171c23;
   border-radius: 2px;
-  box-shadow: 0 0 10px rgba(158, 255, 169, 0.65);
+  transform: rotate(var(--angle));
+  transform-origin: 50% 100%;
+  z-index: 2;
 }
 
 .osc-rotary-label {
@@ -479,11 +466,12 @@
 }
 
 .osc-knob-grid-3 {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .osc-knob-grid-4 {
-  grid-template-columns: repeat(4, 1fr);
+  --knob-size: clamp(24px, calc((100vw - 198px) / 4), 40px);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 /* phosphor bottom row */
@@ -634,4 +622,66 @@
   padding: 5px 8px;
   border-radius: 999px;
   background: rgba(18, 24, 35, 0.35);
+}
+
+@media (max-height: 700px) {
+  .osc-chassis {
+    --knob-size: clamp(32px, min(7vw, 5vh), 40px);
+  }
+
+  .osc-controls-card {
+    gap: 2px;
+  }
+
+  .osc-group {
+    padding: 6px;
+  }
+
+  .osc-knob-grid-4 {
+    --knob-size: clamp(24px, min(calc((100vw - 198px) / 4), 5vh), 36px);
+  }
+}
+
+@media (min-width: 330px) and (min-height: 600px) and (max-height: 700px) {
+  .osc-chassis {
+    --knob-size: 56px;
+  }
+
+  .osc-group {
+    padding: 5px;
+  }
+}
+
+@media (max-height: 600px) {
+  .osc-controls-card {
+    top: 52px;
+    bottom: 4px;
+    padding: 6px;
+    gap: 1px;
+  }
+
+  .osc-group {
+    padding: 4px;
+  }
+
+  .osc-group-title {
+    font-size: 10px;
+    margin-bottom: 2px;
+  }
+
+  .osc-led {
+    height: 1px;
+  }
+
+  .osc-chassis {
+    --knob-size: 24px;
+  }
+
+  .osc-knob-grid-4 {
+    --knob-size: clamp(18px, min(calc((100vw - 198px) / 4), 4vh), 24px);
+  }
+
+  .osc-rotary {
+    gap: 0;
+  }
 }
