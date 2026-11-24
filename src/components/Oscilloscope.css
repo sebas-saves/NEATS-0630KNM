@@ -6,7 +6,7 @@
   --text: #eaf2ff;
   --accent: #9effa9;
   --trim: #2b3442;
-  --knob-size: clamp(40px, min(7vw, 6vh), 56px);
+  --knob-size: clamp(24px, min(5vw, 5vh), 40px);
 
   position: relative;
   isolation: isolate;
@@ -17,6 +17,9 @@
   height: 100vh;
   box-sizing: border-box;
   display: flex;
+  flex-direction: column;
+  gap: clamp(8px, 1vw, 16px);
+  overflow: hidden;
   align-items: center;
   justify-content: center;
 }
@@ -35,7 +38,7 @@
 
 .osc-stage {
   position: relative;
-  width: min(94vw, 238.65vh);
+  width: min(94vw, 238.65vh, calc(238.65vh - 780px));
   height: auto;
   aspect-ratio: 1062 / 445;
   max-width: 1600px;
@@ -128,69 +131,45 @@
   margin-top: 6px;
 }
 
-/* ------- Controls hover button + card ------- */
-.osc-controls-tab {
-  position: absolute;
-  left: 16px;
-  top: 16px;
-  z-index: 20;
-  background: #0f1724;
-  color: #e7f6ff;
-  border: 1px solid #2b3442;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  cursor: pointer;
-}
-
+/* ------- Controls panel ------- */
 .osc-controls-card {
-  position: fixed;
-  left: 16px;
-  top: 58px;
-  width: min(360px, calc(100vw - 32px));
-  max-height: calc(100vh - 66px);
+  position: relative;
+  width: min(94vw, 1600px, 238.65vh, calc(238.65vh - 780px));
   box-sizing: border-box;
   z-index: 19;
   pointer-events: auto;
   border-radius: 12px;
   padding: 8px;
-  background: linear-gradient(#1c2431, #17202c);
-  box-shadow: inset 0 0 0 1px #2a3240, 0 12px 30px rgba(0, 0, 0, 0.45);
+  color: #292720;
+  background: linear-gradient(145deg, #c0b29a, #a49378);
+  box-shadow: inset 0 0 0 1px #d3c4ab, 0 12px 30px rgba(0, 0, 0, 0.45);
   display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   grid-auto-rows: max-content;
   align-content: start;
-  gap: 4px;
-  overflow: clip;
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-
-.osc-controls-card.dimmed {
-  opacity: 0;
-  transform: translateY(-6px);
-  pointer-events: none;
+  gap: 6px;
 }
 
 /* Groups / knobs / buttons */
 .osc-logo {
+  grid-column: 1 / -1;
   font-weight: 700;
   letter-spacing: 0.08em;
   opacity: 0.9;
   font-size: 14px;
-  text-shadow: 0 1px 0 #000;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
 .osc-group {
   position: relative;
   border-radius: 10px;
   padding: 7px;
-  background: linear-gradient(180deg, #1a2230 0%, #171f2b 100%);
+  color: #f1eee8;
+  background: linear-gradient(180deg, #777a78 0%, #626664 100%);
   box-shadow:
-    inset 0 0 0 1px #2b3442,
+    inset 0 0 0 1px #969b98,
     inset 0 18px 22px rgba(255, 255, 255, 0.03),
-    inset 0 -8px 18px rgba(0, 0, 0, 0.25);
+    inset 0 -8px 18px rgba(0, 0, 0, 0.2);
 }
 
 .osc-group-title {
@@ -391,7 +370,7 @@
 /* Rotary */
 .osc-rotary {
   position: relative;
-  width: calc(var(--knob-size) + 22px);
+  width: calc(var(--knob-size) + 12px);
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -473,6 +452,8 @@
 }
 
 .osc-rotary-label {
+  width: 100%;
+  min-width: 0;
   text-align: center;
 }
 
@@ -482,6 +463,12 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   text-shadow: 0 1px 0 #000;
+}
+
+.osc-controls-card .osc-knob-grid-4 .osc-rotary-name {
+  font-size: 7.5px;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 .osc-rotary-val {
@@ -500,8 +487,13 @@
 }
 
 .osc-knob-grid-4 {
-  --knob-size: clamp(24px, calc((100vw - 198px) / 4), 40px);
+  --knob-size: clamp(22px, 2.6vw, 30px);
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.osc-knob-grid-4 .osc-rotary {
+  width: 100%;
 }
 
 /* phosphor bottom row */
@@ -510,7 +502,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
+}
+
+.osc-phosphor-row .osc-selector-btn {
+  font-size: 10px;
+  padding: 4px 6px;
 }
 
 .osc-colorpick {
@@ -654,42 +651,55 @@
   background: rgba(18, 24, 35, 0.35);
 }
 
-@media (max-height: 700px) {
-  .osc-chassis {
-    --knob-size: clamp(32px, min(7vw, 5vh), 40px);
-  }
-
+@media (max-width: 900px) {
   .osc-controls-card {
-    gap: 2px;
-  }
-
-  .osc-group {
-    padding: 6px;
-  }
-
-  .osc-knob-grid-4 {
-    --knob-size: clamp(24px, min(calc((100vw - 198px) / 4), 5vh), 36px);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@media (min-width: 330px) and (min-height: 600px) and (max-height: 700px) {
+@media (max-width: 600px) {
+  .osc-controls-card {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .osc-phosphor-row {
+    flex-wrap: wrap;
+  }
+
   .osc-chassis {
-    --knob-size: 56px;
+    --knob-size: clamp(20px, min(5vw, 4vh), 30px);
+  }
+
+  .osc-knob-grid-4 {
+    --knob-size: clamp(22px, min(5vw, 4vh), 28px);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .osc-controls-card .osc-knob-grid-4 .osc-rotary-name {
+    font-size: 10px;
+    letter-spacing: 0.02em;
+  }
+}
+
+@media (max-height: 700px) {
+  .osc-chassis {
+    --knob-size: clamp(24px, min(5vw, 4vh), 32px);
+  }
+
+  .osc-controls-card {
+    gap: 4px;
   }
 
   .osc-group {
     padding: 5px;
   }
+
+  .osc-knob-grid-4 {
+    --knob-size: clamp(20px, min(2.6vw, 3vh), 26px);
+  }
 }
 
 @media (max-height: 600px) {
-  .osc-controls-card {
-    top: 52px;
-    max-height: calc(100vh - 56px);
-    padding: 6px;
-    gap: 1px;
-  }
-
   .osc-group {
     padding: 4px;
   }
@@ -708,7 +718,7 @@
   }
 
   .osc-knob-grid-4 {
-    --knob-size: clamp(18px, min(calc((100vw - 198px) / 4), 4vh), 24px);
+    --knob-size: clamp(18px, min(2.6vw, 2.5vh), 24px);
   }
 
   .osc-rotary {

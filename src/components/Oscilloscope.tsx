@@ -184,10 +184,6 @@ export default function Oscilloscope() {
   const [eqMirror, setEqMirror] = useState(true);
   const eqPeaksRef = useRef<number[]>([]);
 
-  // controls hover card visibility
-  const [controlsVisible, setControlsVisible] = useState(false);
-  const hideTimer = useRef<number | null>(null);
-
   // live controls cache for draw loop (IMPORTANT: RAF loop reads ONLY from here)
   const controlsRef = useRef({
     power,
@@ -863,20 +859,6 @@ useEffect(() => {
   };
 }, [nowPlaying, nowPlayingSource, power]);
 
-  // hover card show/hide
-  function showControls() {
-    if (hideTimer.current) {
-      window.clearTimeout(hideTimer.current);
-      hideTimer.current = null;
-    }
-    setControlsVisible(true);
-  }
-
-  function hideControls() {
-    if (hideTimer.current) window.clearTimeout(hideTimer.current);
-    hideTimer.current = window.setTimeout(() => setControlsVisible(false), 140);
-  }
-
   // start loop + initial sizing once on mount
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
@@ -935,29 +917,10 @@ useEffect(() => {
           <div className="osc-brand">
             {mode === "eq" ? "graphic equalizer" : "vector scope display"}
           </div>
+        </div>
+      </div>
 
-          <button
-            className="osc-controls-tab"
-            onMouseEnter={showControls}
-            onFocus={showControls}
-            onMouseLeave={hideControls}
-            onBlur={hideControls}
-            aria-label="Controls"
-            title="Controls"
-            type="button"
-          >
-            Controls
-          </button>
-
-          <div
-            className={`osc-controls-card ${controlsVisible ? "" : "dimmed"}`}
-            onMouseEnter={showControls}
-            onMouseLeave={hideControls}
-            onFocus={showControls}
-            onBlur={hideControls}
-            role="region"
-            aria-label="Oscilloscope controls"
-          >
+          <div className="osc-controls-card" role="region" aria-label="Oscilloscope controls">
             <div className="osc-logo">NEATS 0630KNM</div>
 
             <div className="osc-group">
@@ -1099,8 +1062,6 @@ useEffect(() => {
               </div>
             </div>
           </div>
-        </div>
-      </div>
     </div>
   );
 }
